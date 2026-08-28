@@ -132,12 +132,11 @@ static int g_tzOffset = -3;               // fuso GMT (horas), config NVS
 
 
 // ---- Ponteiros de UI do dashboard (zerados a cada build de ST_MAIN) ----
-#define NSEG 18                       // segmentos do medidor de janela
 struct DashUI {
   lv_obj_t *refBar;
   lv_obj_t *agChip, *agPct5, *agCd5, *agAt5;
   lv_obj_t *agPct7, *agCd7, *agAt7, *agTok;
-  lv_obj_t *seg5[NSEG], *seg7[NSEG];  // medidores segmentados
+  lv_obj_t *bar5, *bar7;
 };
 static DashUI g_ui;
 static lv_obj_t *g_pinDots = nullptr, *g_pinMsg = nullptr;
@@ -229,18 +228,19 @@ static lv_color_t grad_color(float p) {
     return lv_color_mix(lv_color_hex(C_WARN), lv_color_hex(C_OK), (uint8_t)(p * 255.0f / 50.0f));
   return lv_color_mix(lv_color_hex(C_BAD), lv_color_hex(C_WARN), (uint8_t)((p - 50.0f) * 255.0f / 50.0f));
 }
-// acende os segmentos do medidor; acesos ganham a cor do gradiente,
-// apagados ficam no trilho escuro
-static void set_meter(lv_obj_t **seg, float pct) {
-  int filled = (int)(pct / 100.0f * NSEG + 0.5f);
-  if (pct > 0.5f && filled == 0) filled = 1;
-  if (filled > NSEG) filled = NSEG;
-  lv_color_t col = grad_color(pct);
-  for (int i = 0; i < NSEG; i++) {
-    if (!seg[i]) continue;
-    lv_obj_set_style_bg_color(seg[i], (i < filled) ? col : lv_color_hex(C_TRACK), 0);
-    lv_obj_set_style_bg_opa(seg[i], (i < filled) ? LV_OPA_COVER : 160, 0);
-  }
+// Medidor: uma barra so, com a parte cheia na cor do gradiente.
+// Eram 18 retangulos de 5 px com 1 px de folga entre eles. Nesta largura o
+// olho nao conta tracinho: ou o desenho vira uma serrilha cinza, ou uma linha
+// laranja - em nenhum dos dois casos da para ler quanto e. E cada segmento era
+// um objeto LVGL com estilo proprio; 18 por card, 36 no total, so para
+// desenhar uma barra.
+static void set_meter(lv_obj_t *bar, float pct) {
+  if (!bar) return;
+  if (pct < 0) pct = 0; if (pct > 100) pct = 100;
+  int v = (int)(pct * 10.0f + 0.5f);
+  if (pct > 0.05f && v == 0) v = 1;          // 0,1% ja aparece
+  lv_bar_set_value(bar, v, LV_ANIM_OFF);
+  lv_obj_set_style_bg_color(bar, grad_color(pct), LV_PART_INDICATOR);
 }
 // "reseta em 1h 23m" / "2d 4h" / "agora" / "--" (relógio não sincronizado)
 static void fmt_eta(uint32_t epoch, char *out, int sz) {
@@ -1069,23 +1069,31 @@ static lv_obj_t *rrect(lv_obj_t *p, int x, int y, int w, int h, int r, uint32_t 
 // Tile 0 — AGORA: janelas 5h/semana com % grande, medidor segmentado
 // (verde -> vermelho conforme o uso) e countdown grande.
 static void build_win_card(lv_obj_t *t, int x, const char *title,
-                           lv_obj_t **pct, lv_obj_t **seg, lv_obj_t **at, lv_obj_t **cd) {
-  // Card de 152 px com 14 de padding: 124 px uteis. O medidor de 18 segmentos
-  // passa de um passo de 11 px para 6, e as fontes descem um degrau — a
-  // porcentagem continua sendo o elemento grande do card.
+                           lv_obj_t **pct, lv_obj_t **bar, lv_obj_t **at, lv_obj_t **cd) {
+  // Card de 152 px com 14 de padding: 124 px uteis.
   lv_obj_t *c = card(t, x, 44, 152, 144);
   tstatic(c, title, &lv_font_montserrat_12, C_MUTED, 0, 0);
   *pct = tlabel(c, &lv_font_montserrat_40, C_OK, 0, 14);
-  for (int i = 0; i < NSEG; i++)                    // medidor: 18 segmentos
-    seg[i] = rrect(c, i * 6, 60, 5, 12, 2, C_TRACK);
-  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 78);
-  *cd = tlabel(c, &lv_font_montserrat_24, C_TEXT, 0, 92);
+
+  *bar = lv_bar_create(c);
+  lv_obj_set_size(*bar, 124, 14);
+  lv_obj_set_pos(*bar, 0, 60);
+  lv_bar_set_range(*bar, 0, 1000);            // decimos de %: 0,1% ja move
+  lv_bar_set_value(*bar, 0, LV_ANIM_OFF);
+  lv_obj_set_style_radius(*bar, 7, LV_PART_MAIN);
+  lv_obj_set_style_radius(*bar, 7, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_color(*bar, lv_color_hex(C_TRACK), LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(*bar, LV_OPA_COVER, LV_PART_MAIN);
+  lv_obj_clear_flag(*bar, LV_OBJ_FLAG_CLICKABLE);
+
+  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 80);
+  *cd = tlabel(c, &lv_font_montserrat_24, C_TEXT, 0, 94);
 }
 // Monta o painel direto na tela ativa. Os y sao 44 maiores que os de antes
 // porque o container do tileview, que ficava em y=44, deixou de existir.
 static void build_dashboard(lv_obj_t *t) {
-  build_win_card(t, 4,   TRS("5 HORAS", "5 HOURS"), &g_ui.agPct5, g_ui.seg5, &g_ui.agAt5, &g_ui.agCd5);
-  build_win_card(t, 164, TRS("SEMANA", "WEEK"),     &g_ui.agPct7, g_ui.seg7, &g_ui.agAt7, &g_ui.agCd7);
+  build_win_card(t, 4,   TRS("5 HORAS", "5 HOURS"), &g_ui.agPct5, &g_ui.bar5, &g_ui.agAt5, &g_ui.agCd5);
+  build_win_card(t, 164, TRS("SEMANA", "WEEK"),     &g_ui.agPct7, &g_ui.bar7, &g_ui.agAt7, &g_ui.agCd7);
   g_ui.agChip = mkchip(t, 4, 192);
   g_ui.agTok = tlabel(t, &lv_font_montserrat_12, C_MUTED, 110, 196);
   lv_obj_set_width(g_ui.agTok, 206);
@@ -1138,8 +1146,9 @@ static void dash_tick() {
 // Animação 100% procedural (moment_tick no loop), sem lv_anim pendurado.
 // ============================================================
 static const uint8_t THR[4] = {25, 50, 70, 100};
+#define MO_SEG 18                     // segmentos do medidor do overlay de limiar
 struct MomentUI {
-  lv_obj_t *scrim, *box, *img, *pct, *seg[NSEG];
+  lv_obj_t *scrim, *box, *img, *pct, *seg[MO_SEG];
   lv_obj_t *lid[2], *drop[2], *ring, *xline[4];
   int win, thr, fromPct;
   int boxY;
@@ -1284,7 +1293,7 @@ static void show_moment(int win, int thr) {
   lv_obj_set_width(msg, 166);
   lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
 
-  for (int i = 0; i < NSEG; i++)
+  for (int i = 0; i < MO_SEG; i++)
     g_mo.seg[i] = rrect(s, 146 + i * 9, 140, 7, 14, 2, C_TRACK);
 
   char e[32], b[48];
@@ -1322,7 +1331,16 @@ static void moment_tick() {
   char b[12]; snprintf(b, sizeof(b), "%d%%", (int)(v + 0.5f));
   lv_label_set_text(g_mo.pct, b);
   lv_obj_set_style_text_color(g_mo.pct, grad_color(v), 0);
-  set_meter(g_mo.seg, v);
+  {                                          // medidor segmentado do overlay
+    int filled = (int)(v / 100.0f * MO_SEG + 0.5f);
+    if (filled > MO_SEG) filled = MO_SEG;
+    lv_color_t col = grad_color(v);
+    for (int i = 0; i < MO_SEG; i++) {
+      if (!g_mo.seg[i]) continue;
+      lv_obj_set_style_bg_color(g_mo.seg[i], (i < filled) ? col : lv_color_hex(C_TRACK), 0);
+      lv_obj_set_style_bg_opa(g_mo.seg[i], (i < filled) ? LV_OPA_COVER : 160, 0);
+    }
+  }
 
   // gotas de suor caindo em ciclo
   for (int i = 0; i < 2; i++) {
@@ -1346,10 +1364,10 @@ static void refresh_ui_values() {
   // Agora: percentuais + medidores segmentados (cor desliza verde -> vermelho)
   snprintf(b, sizeof(b), "%d%%", (int)(g_usage.h5 + 0.5f)); lv_label_set_text(g_ui.agPct5, b);
   lv_obj_set_style_text_color(g_ui.agPct5, grad_color(g_usage.h5), 0);
-  set_meter(g_ui.seg5, g_usage.h5);
+  set_meter(g_ui.bar5, g_usage.h5);
   snprintf(b, sizeof(b), "%d%%", (int)(g_usage.d7 + 0.5f)); lv_label_set_text(g_ui.agPct7, b);
   lv_obj_set_style_text_color(g_ui.agPct7, grad_color(g_usage.d7), 0);
-  set_meter(g_ui.seg7, g_usage.d7);
+  set_meter(g_ui.bar7, g_usage.d7);
 
   set_chip(g_ui.agChip, overall_label(g_usage.statusOverall), status_color(g_usage.statusOverall));
   update_tok_row();

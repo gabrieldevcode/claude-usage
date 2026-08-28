@@ -54,9 +54,10 @@ static uint8_t g_lang = 0;
 #define TRS(pt, en) (g_lang ? (en) : (pt))
 
 // ---- Hardware ----
-Arduino_Canvas *gfx = nullptr;
-static uint16_t *canvas_fb = nullptr;
-AXS15231B_Touch touch_dev(TOUCH_SCL, TOUCH_SDA, TOUCH_INT, TOUCH_ADDR, TOUCH_ROTATION);
+// Sem PSRAM nesta placa: nao ha Arduino_Canvas (framebuffer inteiro em RAM).
+// O LVGL desenha em buffers parciais e cada regiao suja vai direto ao driver.
+Arduino_GFX *gfx = nullptr;
+XPT2046_Touch touch_dev(TOUCH_SCK, TOUCH_MOSI, TOUCH_MISO, TOUCH_CS, TOUCH_IRQ);
 WiFiManager g_wifi;
 Preferences g_prefs;
 
@@ -205,15 +206,16 @@ static void moment_close();
 // ============================================================
 // Pipeline de display/touch (validado no bring-up)
 // ============================================================
+// O original copiava a tela inteira para o framebuffer do Canvas girando 270
+// grau a grau, porque o driver AXS15231B so aceitava o buffer na orientacao
+// nativa. Aqui a rotacao e feita pelo proprio ST7789 (TFT_ROTATION), entao o
+// flush so precisa empurrar o retangulo sujo — que e o unico jeito de caber
+// numa placa sem PSRAM.
 static void disp_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-  uint16_t *src = (uint16_t *)px_map;
-  for (int ly = 0; ly < SCREEN_HEIGHT; ly++) {
-    uint16_t *src_row = src + ly * SCREEN_WIDTH;
-    for (int lx = 0; lx < SCREEN_WIDTH; lx++)
-      canvas_fb[(479 - lx) * 320 + ly] = src_row[lx];
-  }
-  gfx->flush();
-  lv_disp_flush_ready(disp);
+  int32_t w = area->x2 - area->x1 + 1;
+  int32_t h = area->y2 - area->y1 + 1;
+  gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
+  lv_display_flush_ready(disp);
 }
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
   uint16_t x, y;
@@ -941,17 +943,16 @@ static void fatal_screen(const char *msg) {
     gfx->fillScreen(0x0000);
     gfx->setTextColor(0xDBAA);             // C_ACCENT em RGB565
     gfx->setTextSize(2);
-    gfx->setCursor(14, 190);
+    gfx->setCursor(14, 120);
     gfx->println("FALHA AO INICIAR");
     gfx->setTextColor(0xFFFF);
     gfx->setTextSize(1);
-    gfx->setCursor(14, 226);
+    gfx->setCursor(14, 154);
     gfx->println(msg);
-    gfx->setCursor(14, 248);
+    gfx->setCursor(14, 174);
     gfx->println("Desligue e ligue a placa.");
-    gfx->setCursor(14, 262);
+    gfx->setCursor(14, 188);
     gfx->println("Se continuar, regrave o firmware.");
-    gfx->flush();
   }
   while (1) delay(1000);
 }
@@ -2574,13 +2575,11 @@ void setup() {
   delay(300);
   Serial.println("\n=== Claude Usage Stick (touch) ===");
 
-  // Display
-  Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
-  Arduino_GFX *g = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, 320, 480);
-  gfx = new Arduino_Canvas(320, 480, g, 0, 0, 0);
-  if (!gfx->begin(QSPI_FREQ)) { Serial.println("FATAL display"); while (1) delay(1000); }
-  gfx->fillScreen(0x0000); gfx->flush();
-  canvas_fb = gfx->getFramebuffer();
+  // Display: ST7789 em SPI de hardware (HSPI), com a rotacao feita no driver.
+  Arduino_DataBus *bus = new Arduino_ESP32SPI(TFT_DC, TFT_CS, TFT_SCK, TFT_MOSI, TFT_MISO, HSPI);
+  gfx = new Arduino_ST7789(bus, TFT_RST, TFT_ROTATION, false, PANEL_WIDTH, PANEL_HEIGHT);
+  if (!gfx->begin(SPI_FREQ)) { Serial.println("FATAL display"); while (1) delay(1000); }
+  gfx->fillScreen(0x0000);
 
   // Backlight via PWM (brilho ajustável)
   ledcAttach(TFT_BL, 5000, 8);
@@ -2589,12 +2588,18 @@ void setup() {
   // LVGL
   lv_init();
   lv_tick_set_cb([]() -> uint32_t { return millis(); });
-  uint32_t bufSize = SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(lv_color_t);
-  lv_color_t *buf = (lv_color_t *)heap_caps_malloc(bufSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (!buf) { Serial.println("FATAL PSRAM"); fatal_screen("PSRAM indisponivel"); }
+  // Dois buffers parciais na RAM interna. O original alocava a tela inteira em
+  // PSRAM e usava RENDER_MODE_FULL; aqui nao ha PSRAM, e o maior bloco
+  // contiguo da placa (~110 KB) nem comportaria o framebuffer de 153 KB.
+  uint32_t bufSize = SCREEN_WIDTH * LVGL_BUF_LINES * sizeof(lv_color_t);
+  lv_color_t *buf1 = (lv_color_t *)heap_caps_malloc(bufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  lv_color_t *buf2 = (lv_color_t *)heap_caps_malloc(bufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!buf1 || !buf2) { Serial.println("FATAL buffers LVGL"); fatal_screen("RAM insuficiente"); }
+  Serial.printf("[MEM] buffers LVGL: 2 x %u B  heap livre depois: %u B\n",
+                (unsigned)bufSize, (unsigned)ESP.getFreeHeap());
   lv_display_t *disp = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
   lv_display_set_flush_cb(disp, disp_flush_cb);
-  lv_display_set_buffers(disp, buf, NULL, bufSize, LV_DISPLAY_RENDER_MODE_FULL);
+  lv_display_set_buffers(disp, buf1, buf2, bufSize, LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_indev_t *indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touch_read_cb);

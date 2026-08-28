@@ -53,7 +53,7 @@ funções `ESP.*` do core Arduino.
 | Rádio | Wi-Fi + BT + BLE | O firmware só usa Wi-Fi. BT/BLE ficam desligados e liberam RAM. |
 | Package (`PKG_VERSION`) | `1` → **D0WD** | Encapsulamento **sem** flash nem PSRAM embutidas. A flash é um chip externo; PSRAM não existe. |
 | Cristal | 40 MHz | Padrão. Nenhum ajuste de clock necessário. |
-| MAC | `30:76:f5:e9:23:a0` | Identifica a placa; vira também o hostname mDNS. |
+| MAC | `30:76:F5:••:••:••` | Os 3 primeiros octetos são o OUI do fabricante (Espressif); os 3 últimos identificam **esta** unidade e por isso estão mascarados aqui. O MAC completo aparece no boot pelo serial, e é dele que sai o hostname mDNS. |
 | **PSRAM** | **0 bytes** (`ESP.getPsramSize()`) | **A restrição mais dura do port.** O firmware original aloca o framebuffer do LVGL em PSRAM (`MALLOC_CAP_SPIRAM`) e usa `LV_DISPLAY_RENDER_MODE_FULL`. Aqui isso é impossível — tem de virar buffer parcial na RAM interna. |
 | Heap total | 367.704 bytes | — |
 | Heap livre no boot | **321.752 bytes** | É o orçamento inteiro: buffers do LVGL + objetos da UI + handshake TLS + buffers de Wi-Fi. |

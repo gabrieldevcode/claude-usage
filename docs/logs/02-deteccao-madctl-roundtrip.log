@@ -1,0 +1,152 @@
+﻿ets Jul 29 2019 12:21:46
+
+rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+configsip: 0, SPIWP:0xee
+clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+mode:DIO, clock div:1
+load:0x3fff0030,len:4876
+ho 0 tail 12 room 4
+load:0x40078000,len:16532
+load:0x40080400,len:3500
+entry 0x400805b4
+
+################################################
+#  DETECCAO DE HARDWARE - CYD                  #
+################################################
+
+=== 1. CHIP / MEMORIA ===
+modelo            : ESP32
+chip model (sdk)  : ESP32-D0WD-V3
+revisao           : 301
+nucleos           : 2
+cpu freq          : 240 MHz
+features          : WiFi + BT + BLE
+flash (sdk)       : 4194304 bytes (4 MB)
+flash speed       : 80000000 Hz
+PSRAM total       : 0 bytes  <== 0 significa SEM PSRAM
+heap total        : 367544 bytes
+heap livre        : 321592 bytes  <== orcamento do LVGL + TLS
+maior bloco heap  : 110580 bytes
+sketch size       : 384912 bytes
+particao app livre: 1310720 bytes
+MAC               : 00:00:00:00:00:00
+
+=== 2. VARREDURA I2C (touch capacitivo) ===
+SDA=21 SCL=22 : nada
+SDA=33 SCL=32 : nada
+SDA=27 SCL=26 : nada
+SDA=4  SCL=5  : nada
+SDA=15 SCL=2  : nada
+>> nenhum dispositivo I2C: o touch desta placa NAO e capacitivo
+
+=== 3. ID DO CONTROLADOR DE TELA ===
+
+-- HSPI (CYD tipico): SCK14 MOSI13 MISO12 CS15 DC2
+   0x04 RDDID
+      dummy=0 -> 40 C0 D9 FF
+      dummy=1 -> 81 81 B3 FF
+      dummy=2 -> 03 03 67 FE
+      dummy=3 -> 06 06 CF FC
+      dummy=4 -> 0C 0D 9F F8
+      dummy=5 -> 18 1B 3F F0
+      dummy=6 -> 30 36 7F E0
+      dummy=7 -> 60 6C FF C0
+      dummy=8 -> C0 D9 FF 80
+   0xD3 RDDID4
+      dummy=0 -> 00 00 00 00
+      dummy=1 -> 00 00 00 00
+      dummy=2 -> 00 00 00 00
+      dummy=3 -> 00 00 00 00
+      dummy=4 -> 00 00 00 00
+      dummy=5 -> 00 00 00 00
+      dummy=6 -> 00 00 00 00
+      dummy=7 -> 00 00 00 00
+      dummy=8 -> 00 00 00 00
+   0x09 RDDST
+      dummy=0 -> 40 31 80 00
+      dummy=1 -> 80 63 00 00
+      dummy=2 -> 00 C6 00 00
+      dummy=3 -> 01 8C 00 00
+      dummy=4 -> 03 18 00 00
+      dummy=5 -> 06 30 00 00
+      dummy=6 -> 0C 60 00 00
+      dummy=7 -> 18 C0 00 00
+      dummy=8 -> 31 80 00 00
+   0x0A RDDPM
+      dummy=0 -> 98 00 00 00
+      dummy=1 -> 30 00 00 00
+      dummy=2 -> 60 00 00 00
+      dummy=3 -> C0 00 00 00
+      dummy=4 -> 80 00 00 00
+      dummy=5 -> 00 00 00 00
+      dummy=6 -> 00 00 00 00
+      dummy=7 -> 00 00 00 00
+      dummy=8 -> 00 00 00 00
+   Se todas as linhas forem FF/00 ou lixo constante, o MISO do
+   painel nao esta ligado nesta placa e o ID nao e legivel.
+
+-- VSPI: SCK18 MOSI23 MISO19 CS5 DC2
+   0x04 RDDID
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   0xD3 RDDID4
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   0x09 RDDST
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   0x0A RDDPM
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   Se todas as linhas forem FF/00 ou lixo constante, o MISO do
+   painel nao esta ligado nesta placa e o ID nao e legivel.
+
+=== 3b. ROUND-TRIP DE MADCTL (alinhamento do MISO) ===
+-- HSPI (CYD tipico): SCK14 MOSI13 MISO12 CS15 DC2
+   escrito 0x48 -> lido por alinhamento: 0:48* 1:90 2:20 3:40 4:80 5:00 6:00 7:00 8:00
+   escrito 0x28 -> lido por alinhamento: 0:28* 1:50 2:A0 3:40 4:80 5:00 6:00 7:00 8:00
+   escrito 0x0 -> lido por alinhamento: 0:00* 1:00* 2:00* 3:00* 4:00* 5:00* 6:00* 7:00* 8:00*
+   >>> MISO LIGADO e alinhado em dummy=0 bits. As leituras de ID nesse alinhamento sao validas.
+   RDID1/2/3 (0xDA/DB/DC) = 0x81 0x81 0xB3
+   (ILI9341 = 0x00 0x93 0x41 / ST7789 = 0x85 0x85 0x52)
+-- VSPI: SCK18 MOSI23 MISO19 CS5 DC2
+   escrito 0x48 -> lido por alinhamento: 0:FF 1:FF 2:FF 3:FF 4:FF 5:FF 6:FF 7:FF 8:FF
+   escrito 0x28 -> lido por alinhamento: 0:FF 1:FF 2:FF 3:FF 4:FF 5:FF 6:FF 7:FF 8:FF
+   escrito 0x0 -> lido por alinhamento: 0:FF 1:FF 2:FF 3:FF 4:FF 5:FF 6:FF 7:FF 8:FF
+   >>> o valor escrito NAO volta em nenhum alinhamento:
+   >>> o MISO do painel nao esta ligado nesta placa.
+   >>> a identificacao tera de ser visual (bring-up).
+
+=== 4. BACKLIGHT (olhe a tela) ===
+piscando GPIO21 por 3s...
+piscando GPIO27 por 3s...
+piscando GPIO32 por 3s...
+

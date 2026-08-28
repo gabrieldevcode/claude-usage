@@ -1,0 +1,182 @@
+﻿Z1=   0 Z2=4092 X=4095 Y=2642 IRQ=1
+ets Jul 29 2019 12:21:46
+
+rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+configsip: 0, SPIWP:0xee
+clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+mode:DIO, clock div:1
+load:0x3fff0030,len:4876
+ho 0 tail 12 room 4
+load:0x40078000,len:16532
+load:0x40080400,len:3500
+entry 0x400805b4
+
+################################################
+#  DETECCAO DE HARDWARE - CYD                  #
+################################################
+
+=== 1. CHIP / MEMORIA ===
+modelo            : ESP32
+chip model (sdk)  : ESP32-D0WD-V3
+revisao           : 301
+nucleos           : 2
+cpu freq          : 240 MHz
+features          : WiFi + BT + BLE
+flash (sdk)       : 4194304 bytes (4 MB)
+flash speed       : 80000000 Hz
+PSRAM total       : 0 bytes  <== 0 significa SEM PSRAM
+heap total        : 367704 bytes
+heap livre        : 321752 bytes  <== orcamento do LVGL + TLS
+maior bloco heap  : 110580 bytes
+sketch size       : 383520 bytes
+particao app livre: 1310720 bytes
+MAC               : 00:00:00:00:00:00
+
+=== 2. VARREDURA I2C (touch capacitivo) ===
+SDA=21 SCL=22 : nada
+SDA=33 SCL=32 : nada
+SDA=27 SCL=26 : nada
+SDA=4  SCL=5  : nada
+SDA=15 SCL=2  : nada
+>> nenhum dispositivo I2C: o touch desta placa NAO e capacitivo
+
+=== 3. ID DO CONTROLADOR DE TELA ===
+
+-- HSPI (CYD tipico): SCK14 MOSI13 MISO12 CS15 DC2
+   0x04 RDDID
+      dummy=0 -> 40 C0 D9 FF
+      dummy=1 -> 81 81 B3 FF
+      dummy=2 -> 03 03 67 FE
+      dummy=3 -> 06 06 CF FC
+      dummy=4 -> 0C 0D 9F F8
+      dummy=5 -> 18 1B 3F F0
+      dummy=6 -> 30 36 7F E0
+      dummy=7 -> 60 6C FF C0
+      dummy=8 -> C0 D9 FF 80
+   0xD3 RDDID4
+      dummy=0 -> 00 00 00 00
+      dummy=1 -> 00 00 00 00
+      dummy=2 -> 00 00 00 00
+      dummy=3 -> 00 00 00 00
+      dummy=4 -> 00 00 00 00
+      dummy=5 -> 00 00 00 00
+      dummy=6 -> 00 00 00 00
+      dummy=7 -> 00 00 00 00
+      dummy=8 -> 00 00 00 00
+   0x09 RDDST
+      dummy=0 -> 40 31 80 00
+      dummy=1 -> 80 63 00 00
+      dummy=2 -> 00 C6 00 00
+      dummy=3 -> 01 8C 00 00
+      dummy=4 -> 03 18 00 00
+      dummy=5 -> 06 30 00 00
+      dummy=6 -> 0C 60 00 00
+      dummy=7 -> 18 C0 00 00
+      dummy=8 -> 31 80 00 00
+   0x0A RDDPM
+      dummy=0 -> 98 00 00 00
+      dummy=1 -> 30 00 00 00
+      dummy=2 -> 60 00 00 00
+      dummy=3 -> C0 00 00 00
+      dummy=4 -> 80 00 00 00
+      dummy=5 -> 00 00 00 00
+      dummy=6 -> 00 00 00 00
+      dummy=7 -> 00 00 00 00
+      dummy=8 -> 00 00 00 00
+   Se todas as linhas forem FF/00 ou lixo constante, o MISO do
+   painel nao esta ligado nesta placa e o ID nao e legivel.
+
+-- VSPI: SCK18 MOSI23 MISO19 CS5 DC2
+   0x04 RDDID
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   0xD3 RDDID4
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   0x09 RDDST
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   0x0A RDDPM
+      dummy=0 -> FF FF FF FF
+      dummy=1 -> FF FF FF FF
+      dummy=2 -> FF FF FF FF
+      dummy=3 -> FF FF FF FF
+      dummy=4 -> FF FF FF FF
+      dummy=5 -> FF FF FF FF
+      dummy=6 -> FF FF FF FF
+      dummy=7 -> FF FF FF FF
+      dummy=8 -> FF FF FF FF
+   Se todas as linhas forem FF/00 ou lixo constante, o MISO do
+   painel nao esta ligado nesta placa e o ID nao e legivel.
+
+=== 4. BACKLIGHT (olhe a tela) ===
+piscando GPIO21 por 3s...
+piscando GPIO27 por 3s...
+piscando GPIO32 por 3s...
+piscando GPIO4 por 3s...
+>> o GPIO que fez a tela piscar/acender e o TFT_BL
+
+=== 4b. LED RGB (olhe o LED perto do USB) ===
+GPIO4  deveria acender VERMELHO por 2s
+GPIO16 deveria acender VERDE por 2s
+GPIO17 deveria acender AZUL por 2s
+
+=== 4c. LDR (sensor de luz) ===
+GPIO34 bruto: 0 0 0 0 0 
+(tapar o sensor com o dedo deve mudar esse valor)
+
+=== 5. XPT2046 (touch resistivo) ===
+-- XPT2046 (CYD tipico): SCK25 MOSI32 MISO39 CS33 IRQ36
+ENCOSTE O DEDO NA TELA. Se Z1 subir e X/Y virarem numeros
+plausiveis (nem 0 nem 4095), o XPT2046 esta nesses pinos.
+IRQ vai a 0 durante o toque.
+
+Z1=   0 Z2=4091 X=4095 Y=2787 IRQ=1
+Z1=   0 Z2=4089 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4089 X=4095 Y=2639 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2646 IRQ=1
+Z1=   0 Z2=4092 X=4095 Y=2645 IRQ=1
+Z1=   0 Z2=4088 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2643 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2644 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2786 IRQ=1
+Z1=   0 Z2=4090 X=4095 Y=2643 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4092 X=4095 Y=2638 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2782 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2640 IRQ=1
+Z1=   0 Z2=4090 X=4095 Y=2643 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2638 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4092 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2643 IRQ=1
+Z1=   0 Z2=4091 X=4095 Y=2640 IRQ=1
+Z1=   0 Z2=4092 X=4095 Y=2643 IRQ=1
+Z1=   0 Z2=4090 X=4095 Y=2638 IRQ=1
+Z1=   0 Z2=4092 X=4095 Y=2642 IRQ=1
+Z1=   0 Z2=4095 X=4095 Y=2638 IRQ=1
+

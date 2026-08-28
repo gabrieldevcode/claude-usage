@@ -250,7 +250,84 @@ margem morta ao longo delas.
 
 ---
 
-## 7. Resumo do que muda no firmware
+## 7. TLS × memória: o limiar medido nesta placa
+
+A falha mais difícil do port não foi vídeo nem toque: foi a busca na API parar de
+funcionar. O sintoma era específico o bastante para enganar — as três primeiras
+buscas depois do boot davam `HTTP 200`, e daí em diante **todas** davam `HTTP -1`,
+para sempre, até reiniciar.
+
+`HTTP -1` é o `HTTPC_ERROR_CONNECTION_REFUSED` do `HTTPClient`, que engole o
+motivo real. Cada suspeito foi descartado com um número:
+
+| Suspeito | Medida | Veredito |
+|---|---|---|
+| Wi-Fi | `WiFi.status() = 3`, RSSI −49 dBm | conectado e forte |
+| DNS | `api.anthropic.com` → `160.79.104.10` em 0 ms | resolve |
+| TCP na 443 | conecta em 11–15 ms | abre |
+| Relógio | `1787955057`, 118 s atrás do PC; certificado válido | correto |
+| Bundle de CA | OpenSSL fecha a cadeia real com os **mesmos 3 certificados** de `certs.cpp`: `Verify return code: 0 (ok)` | correto |
+
+O `WiFiClientSecure::lastError()` dizia `X509 - Certificate verification failed`.
+O que decidiu foi repetir a **mesma requisição**, no mesmo instante e com a mesma
+memória, com `setInsecure()`: passou, com dados reais. A única diferença entre as
+duas era percorrer a cadeia.
+
+### Por que percorrer a cadeia custa caro aqui
+
+A cadeia da Anthropic é:
+
+```
+api.anthropic.com            ECDSA P-256
+  ← Google Trust Services WE1   ECDSA, assinatura SHA-384
+    ← GTS Root R4                chave EC de 384 bits
+      ← GlobalSign
+```
+
+Verificar ECDSA P-384 no mbedtls pede blocos **grandes e contíguos** de heap. E
+`ESP.getFreeHeap()` não serve para prever isso: o que importa é
+`ESP.getMaxAllocHeap()`, o maior bloco contíguo. Com a heap fragmentada pelos
+objetos da interface, sobra memória total e não sobra bloco.
+
+O limiar, medido nesta placa:
+
+| Maior bloco contíguo | Validação da cadeia |
+|---|---|
+| 53 KB | **falha sempre** |
+| 78 KB | **passa** |
+
+As três buscas que funcionavam aconteciam **antes de o dashboard existir**, quando
+ainda havia ~110 KB de bloco livre. O relógio sincronizar no mesmo intervalo era
+coincidência.
+
+### O que foi feito
+
+Duas correções de alocação, nenhuma delas de protocolo:
+
+1. **Bytes por pixel corretos.** Na LVGL 9 o `lv_color_t` é uma struct RGB888 de
+   3 bytes, mas o formato de render deste display é RGB565, de 2. Dimensionar o
+   buffer por `sizeof(lv_color_t)` reservava 50 % a mais do que a LVGL usa.
+2. **Buffer único em vez de duplo**, de 24 linhas (320 × 24 × 2 = 15.360 B) no
+   lugar de dois de 32 (40.960 B no total).
+
+Resultado, lido da placa com o dashboard montado:
+
+```
+[MEM] dashboard montado: livre=120216  maior bloco=77812
+[API] HTTP 200   5h:62% (allowed)  7d:61% (allowed)
+```
+
+De **32.756 B** para **77.812 B** de maior bloco. O custo é um pouco de fluidez no
+redesenho — é o preço de o TLS fechar numa placa sem PSRAM.
+
+> **Regra que fica para quem mexer neste firmware:** qualquer mudança que aloque
+> memória precisa ser conferida com o log `[MEM] ... maior bloco` depois de montar
+> a tela. Abaixo de ~78 KB a busca na API volta a falhar, e o erro que aparece
+> (`HTTP -1`) não aponta para memória em nenhum momento.
+
+---
+
+## 8. Resumo do que muda no firmware
 
 | | Original (JC4832W535) | Esta CYD | Consequência |
 |---|---|---|---|

@@ -1086,14 +1086,19 @@ static void build_win_card(lv_obj_t *t, int x, const char *title,
   lv_obj_set_style_bg_opa(*bar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(*bar, LV_OBJ_FLAG_CLICKABLE);
 
-  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 80);
-  *cd = tlabel(c, &lv_font_montserrat_24, C_TEXT, 0, 94);
+  // "faltam 2h14" em cima, grande: e o numero com que se decide se da para
+  // continuar. "zera 21:04" embaixo, pequeno: e a confirmacao.
+  *cd = tlabel(c, &lv_font_montserrat_20, C_TEXT, 0, 82);
+  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 106);
 }
 // Monta o painel direto na tela ativa. Os y sao 44 maiores que os de antes
 // porque o container do tileview, que ficava em y=44, deixou de existir.
 static void build_dashboard(lv_obj_t *t) {
-  build_win_card(t, 4,   TRS("5 HORAS", "5 HOURS"), &g_ui.agPct5, &g_ui.bar5, &g_ui.agAt5, &g_ui.agCd5);
-  build_win_card(t, 164, TRS("SEMANA", "WEEK"),     &g_ui.agPct7, &g_ui.bar7, &g_ui.agAt7, &g_ui.agCd7);
+  // "5 HORAS" so diz alguma coisa para quem ja sabe o que e a janela de 5h. O
+  // que a pessoa quer saber e quanto ela gastou agora e quanto gastou na
+  // semana; quando a conta zera esta logo abaixo, com hora.
+  build_win_card(t, 4,   TRS("USO AGORA", "USED NOW"),  &g_ui.agPct5, &g_ui.bar5, &g_ui.agAt5, &g_ui.agCd5);
+  build_win_card(t, 164, TRS("NA SEMANA", "THIS WEEK"), &g_ui.agPct7, &g_ui.bar7, &g_ui.agAt7, &g_ui.agCd7);
   g_ui.agChip = mkchip(t, 4, 192);
   g_ui.agTok = tlabel(t, &lv_font_montserrat_12, C_MUTED, 110, 196);
   lv_obj_set_width(g_ui.agTok, 206);
@@ -1122,16 +1127,21 @@ static void update_tok_row() {
 static void dash_tick() {
   if (g_state != ST_MAIN || !g_ui.agCd5) return;
   char e[32], c[24], b[64];
+
+  // Janela de 5h: zera ainda hoje, entao basta a hora.
   fmt_eta(g_usage.h5ResetEpoch, e, sizeof(e));
-  lv_label_set_text(g_ui.agCd5, e);
-  fmt_clock(g_usage.h5ResetEpoch, c, sizeof(c));
-  snprintf(b, sizeof(b), TRS("RESETA EM \xE2\x80\xA2 %s", "RESETS \xE2\x80\xA2 %s"), c);
+  snprintf(b, sizeof(b), TRS("faltam %s", "%s left"), e);
+  lv_label_set_text(g_ui.agCd5, b);
+  fmt_hm(g_usage.h5ResetEpoch, c, sizeof(c));
+  snprintf(b, sizeof(b), TRS("zera %s", "resets %s"), c);
   lv_label_set_text(g_ui.agAt5, b);
 
+  // Semanal: pode zerar daqui a dias, entao o dia da semana entra junto.
   fmt_eta(g_usage.d7ResetEpoch, e, sizeof(e));
-  lv_label_set_text(g_ui.agCd7, e);
+  snprintf(b, sizeof(b), TRS("faltam %s", "%s left"), e);
+  lv_label_set_text(g_ui.agCd7, b);
   fmt_clock(g_usage.d7ResetEpoch, c, sizeof(c));
-  snprintf(b, sizeof(b), TRS("RESETA EM \xE2\x80\xA2 %s", "RESETS \xE2\x80\xA2 %s"), c);
+  snprintf(b, sizeof(b), TRS("zera %s", "resets %s"), c);
   lv_label_set_text(g_ui.agAt7, b);
 
   set_hdr_status();

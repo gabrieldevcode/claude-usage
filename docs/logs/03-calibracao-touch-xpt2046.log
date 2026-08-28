@@ -1,0 +1,57 @@
+ets Jul 29 2019 12:21:46
+
+rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+configsip: 0, SPIWP:0xee
+clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+mode:DIO, clock div:1
+load:0x3fff0030,len:4876
+ho 0 tail 12 room 4
+load:0x40078000,len:16532
+load:0x40080400,len:3500
+entry 0x400805b4
+
+=== BRING-UP CYD: ST7789 + calibracao do XPT2046 ===
+display 320x240  rotation=3
+alvo 1/4 em tela (24,24) - toque agora
+  cru X=3480 Y=3573
+alvo 2/4 em tela (296,24) - toque agora
+  cru X=3381 Y=377
+alvo 3/4 em tela (24,216) - toque agora
+  cru X=685 Y=3597
+alvo 4/4 em tela (296,216) - toque agora
+  cru X=714 Y=411
+
+=== CONSTANTES DE CALIBRACAO (colar no config.h) ===
+#define TOUCH_SWAP_XY   1
+#define TOUCH_RAW_MIN_X 3867
+#define TOUCH_RAW_MAX_X 112
+#define TOUCH_RAW_MIN_Y 3771
+#define TOUCH_RAW_MAX_Y 358
+=== fim ===
+
+Verificacao: arraste o dedo. O ponto vermelho tem de ficar
+embaixo do dedo, inclusive nos 4 cantos.
+cru X=3000 Y=3574  -> tela 24,53
+cru X=3026 Y=3555  -> tela 26,52
+cru X=3042 Y=3550  -> tela 26,51
+cru X=3035 Y=3548  -> tela 27,51
+cru X=3028 Y=3533  -> tela 28,52
+cru X=3002 Y=3470  -> tela 33,53
+cru X=2949 Y=3403  -> tela 39,57
+cru X=2939 Y=3317  -> tela 46,58
+cru X=2934 Y=3230  -> tela 54,58
+cru X=2912 Y=3148  -> tela 61,60
+cru X=2909 Y=3059  -> tela 68,60
+cru X=2893 Y=3002  -> tela 73,61
+cru X=2890 Y=2958  -> tela 77,61
+cru X=2900 Y=2897  -> tela 82,60
+cru X=2905 Y=2849  -> tela 86,60
+cru X=2909 Y=2753  -> tela 94,60
+cru X=2914 Y=2652  -> tela 103,60
+cru X=2924 Y=2506  -> tela 115,59
+cru X=2950 Y=2365  -> tela 127,57
+cru X=2964 Y=2285  -> tela 134,56
+cru X=2982 Y=2194  -> tela 142,55
+cru X=3001 Y=2102  -> tela 149,53
+cru X=3039 Y=2025  -> tela 156,51
+

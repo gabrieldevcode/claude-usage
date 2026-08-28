@@ -1983,12 +1983,12 @@ static void refresh_ui_values() {
 static void set_hdr_status() {
   if (!g_hdrStatus) return;
   char buf[40]; uint32_t color;
-  if (g_refreshing)        { strcpy(buf, TRS("atualizando...", "updating..."));      color = C_ACCENT; }
-  else if (!g_lastFetchOk) { strcpy(buf, TRS("falha ao atualizar", "update failed")); color = C_BAD; }
+  if (g_refreshing)        { strcpy(buf, TRS("atualizando", "updating")); color = C_ACCENT; }
+  else if (!g_lastFetchOk) { strcpy(buf, TRS("falhou", "failed"));       color = C_BAD; }
   else {
     uint32_t s = (millis() - g_lastOkMs) / 1000;
-    if (s < 60) snprintf(buf, sizeof(buf), TRS("atualizado ha %us", "updated %us ago"), (unsigned)s);
-    else        snprintf(buf, sizeof(buf), TRS("atualizado ha %umin", "updated %um ago"), (unsigned)(s / 60));
+    if (s < 60) snprintf(buf, sizeof(buf), TRS("ha %us", "%us ago"), (unsigned)s);
+    else        snprintf(buf, sizeof(buf), TRS("ha %umin", "%um ago"), (unsigned)(s / 60));
     color = C_MUTED;
   }
   lv_label_set_text(g_hdrStatus, buf);
@@ -2045,7 +2045,7 @@ static void ui_main() {
   lv_obj_add_event_cb(ref, refresh_cb, LV_EVENT_CLICKED, NULL);
 
   g_hdrStatus = mklabel(scr, "", &lv_font_montserrat_12, C_MUTED);
-  lv_obj_set_width(g_hdrStatus, 62);
+  lv_obj_set_width(g_hdrStatus, 72);
   lv_obj_set_style_text_align(g_hdrStatus, LV_TEXT_ALIGN_RIGHT, 0);
   lv_label_set_long_mode(g_hdrStatus, LV_LABEL_LONG_DOT);
   lv_obj_align(g_hdrStatus, LV_ALIGN_TOP_RIGHT, -56, 12);
@@ -2113,6 +2113,8 @@ static void ui_main() {
 
   refresh_ui_values();
   on_tile_changed(NULL);
+  Serial.printf("[MEM] dashboard montado: livre=%u  maior bloco=%u\n",
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 }
 
 // ============================================================
@@ -2613,6 +2615,8 @@ static void bg_refresh() {
   if (!g_wifi.isConnected()) g_wifi.autoConnect(WIFI_CONNECT_TIMEOUT_MS);
   ensure_time();
   g_refreshing = true; set_hdr_status(); lv_refr_now(NULL);
+  Serial.printf("[MEM] antes do fetch: livre=%u  maior bloco=%u\n",
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
   UsageData u = {};
   bool ok = fetchUsage(g_token, u);
   bool rebuild = false;
@@ -2657,12 +2661,22 @@ void setup() {
   // Dois buffers parciais na RAM interna. O original alocava a tela inteira em
   // PSRAM e usava RENDER_MODE_FULL; aqui nao ha PSRAM, e o maior bloco
   // contiguo da placa (~110 KB) nem comportaria o framebuffer de 153 KB.
-  uint32_t bufSize = SCREEN_WIDTH * LVGL_BUF_LINES * sizeof(lv_color_t);
+  //
+  // O tamanho vem de LVGL_BYTES_PER_PX, nao de sizeof(lv_color_t): na LVGL 9
+  // lv_color_t e uma struct RGB888 de 3 bytes, mas o formato de render deste
+  // display e RGB565, de 2. Usar o sizeof reservava 50% a mais de RAM do que o
+  // LVGL chega a usar — desperdicio que numa placa sem PSRAM custa caro, e que
+  // aqui era a diferenca entre o TLS conectar ou nao.
+  uint32_t bufSize = SCREEN_WIDTH * LVGL_BUF_LINES * LVGL_BYTES_PER_PX;
+  // Buffer UNICO, nao duplo: a verificacao da cadeia TLS da Anthropic
+  // (ECDSA P-384 + SHA-384) precisa de blocos grandes, e o segundo buffer
+  // custava 20 KB que fazem falta exatamente no momento do handshake.
   lv_color_t *buf1 = (lv_color_t *)heap_caps_malloc(bufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  lv_color_t *buf2 = (lv_color_t *)heap_caps_malloc(bufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!buf1 || !buf2) { Serial.println("FATAL buffers LVGL"); fatal_screen("RAM insuficiente"); }
-  Serial.printf("[MEM] buffers LVGL: 2 x %u B  heap livre depois: %u B\n",
-                (unsigned)bufSize, (unsigned)ESP.getFreeHeap());
+  lv_color_t *buf2 = nullptr;
+  if (!buf1) { Serial.println("FATAL buffers LVGL"); fatal_screen("RAM insuficiente"); }
+  Serial.printf("[MEM] buffer LVGL: 1 x %u B  heap livre=%u  maior bloco=%u\n",
+                (unsigned)bufSize, (unsigned)ESP.getFreeHeap(),
+                (unsigned)ESP.getMaxAllocHeap());
   lv_display_t *disp = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
   lv_display_set_flush_cb(disp, disp_flush_cb);
   lv_display_set_buffers(disp, buf1, buf2, bufSize, LV_DISPLAY_RENDER_MODE_PARTIAL);

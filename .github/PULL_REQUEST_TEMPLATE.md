@@ -1,24 +1,25 @@
-# What does this PR do?
+# O que este PR faz?
 
-<!-- Short description of the change. -->
+<!-- Descricao curta da mudanca. -->
 
-## 📸 Device photo
+## Foto do dispositivo
 
-<!-- REQUIRED for new boards or hardware-related changes:
-     attach a photo of YOUR device running this firmware
-     (boot screen, PIN screen, or dashboard).
-     Just drag & drop the image here. -->
+<!-- OBRIGATORIA em mudancas de hardware: uma foto da SUA placa rodando este
+     firmware (tela de boot, de PIN ou o dashboard). Arraste a imagem aqui. -->
 
-## ✅ Checklist
+## Checklist
 
-### All PRs
+- [ ] Compila: `arduino-cli compile` (ou `build.ps1` / `build.sh`) sem erro
+- [ ] Testado na placa de verdade — modelo: <!-- ex.: CYD ESP32-2432S028 -->
+- [ ] O log `[MEM] ... maior bloco` continua **acima de 78 KB** depois de montar
+      a tela — abaixo disso a validacao da cadeia TLS da Anthropic falha, e o
+      erro que aparece (`HTTP -1`) nao menciona memoria
+      (ver [`docs/HARDWARE-CYD.md`](../docs/HARDWARE-CYD.md))
+- [ ] Nenhum alvo de toque abaixo de `y = 216` (zona morta do painel)
+- [ ] Nenhuma credencial, token ou senha no diff
 
-- [ ] Tested on real hardware — board: <!-- e.g. M5StickC Plus -->
+## Se for um port para outra placa
 
-### New board port
-
-- [ ] 📸 Photo of the device **running this firmware** is attached above
-- [ ] `README.md` hardware table updated with this board (name, MCU, display, firmware version, PlatformIO env, buy link)
-- [ ] Board spec page added at `docs/<env>.md` (specs, flash commands, controls, quirks) — copy an existing page as a template
-- [ ] New `[env:...]` added to `platformio.ini`
-- [ ] (Optional, appreciated) photo added to the 📸 Gallery section in `README.md`
+- [ ] `docs/` atualizado com as specs **lidas da placa**, nao de catalogo
+- [ ] Logs de deteccao em `docs/logs/`, com o MAC mascarado
+- [ ] `partitions.csv` conferido contra o tamanho real da flash

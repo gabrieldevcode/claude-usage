@@ -89,6 +89,10 @@
 #define MAX_PIN_ATTEMPTS        10
 #define LOCKOUT_BASE_SEC        60       // dobra a cada falha
 #define KDF_ROUNDS              10000
+// Sal de compilacao da chave derivada do chip. Junto com o MAC de eFuse, e o
+// que alimenta deviceSecret(). Trocar este valor invalida os tokens ja
+// gravados: eles nao decifram mais, e a placa pede o token de novo.
+#define DEVICE_KEY_SALT         "claude-usage-stick/cyd/v2"
 
 // ── Rede / API Claude ────────────────────────────────────
 #define WIFI_CONNECT_TIMEOUT_MS 8000

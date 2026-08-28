@@ -72,7 +72,7 @@ Preferences g_prefs;
 
 // ---- Estado da aplicação ----
 enum State {
-  ST_BOOT, ST_PIN, ST_SETUP_PIN, ST_WIFI, ST_TOKEN,
+  ST_BOOT, ST_UNLOCK, ST_PIN, ST_WIFI, ST_TOKEN,
   ST_LOADING, ST_MAIN, ST_SETTINGS, ST_ACCOUNTS, ST_ACCT_NAME, ST_ABOUT, ST_ERROR
 };
 static State g_state = ST_BOOT;
@@ -101,12 +101,13 @@ static char g_pendingToken[200] = {0};       // token digitado, aguardando PIN
 // Trade-off aceito: nao enfraquece o modelo — o token JA vive decifrado em
 // g_token, entao quem consegue ler a RAM ja tem o que interessa. O que continua
 // valendo: nada disso vai para o NVS, e factory_reset() zera este buffer.
-static char g_sessionPin[PIN_LEN + 1] = {0};
+// Migracao: verdadeiro quando existe um token gravado que a chave do chip nao
+// abre, ou seja, cifrado pela versao com PIN. Nesse caso, e so nesse, o teclado
+// numerico aparece - uma vez.
+static bool g_migratingPin = false;
 static int  g_tokenTargetSlot = 0;
 static char g_pendingLabel[ACCT_LBL_MAX] = {0};
 static char g_pinEntry[PIN_LEN + 1] = {0};   // dígitos sendo digitados
-static char g_pinFirst[PIN_LEN + 1] = {0};   // 1ª entrada no setup de PIN
-static bool g_pinConfirming = false;         // setup: confirmando 2ª vez
 static int  g_pinAttempts = 0;               // tentativas erradas (persistido)
 static uint32_t g_lockoutUntil = 0;          // millis até liberar nova tentativa
 static bool g_timeInit = false;
@@ -146,6 +147,7 @@ static void dash_tick();
 static void set_hdr_status();
 static void apply_tz();
 static void ui_pin();
+static void ui_unlock();
 static void ui_wifi();
 static void ui_token();
 static void ui_loading(const char *sub);
@@ -302,7 +304,6 @@ static void factory_reset() {
     LittleFS.remove(pth);
   }
   memset(&g_accts, 0, sizeof(g_accts));
-  memset(g_sessionPin, 0, sizeof(g_sessionPin));
   g_pendingLabel[0] = 0;
   g_tokenTargetSlot = 0;
   memset(&g_tok, 0, sizeof(g_tok));
@@ -316,11 +317,13 @@ static void factory_reset() {
 // ============================================================
 // Tela: PIN (keypad touch) — entra PIN p/ decifrar OU define novo no setup
 // ============================================================
+// Sem tecla OK: pin_kb_cb submete sozinho ao completar o 4o digito, entao ela
+// nunca teve efeito nenhum - e ainda por cima caia na zona morta do painel.
 static const char *pin_map[] = {
   "1", "2", "3", "\n",
   "4", "5", "6", "\n",
   "7", "8", "9", "\n",
-  LV_SYMBOL_LEFT, "0", LV_SYMBOL_OK, ""
+  LV_SYMBOL_LEFT, "0", ""
 };
 
 static void pin_update_dots() {
@@ -334,52 +337,22 @@ static void pin_update_dots() {
   lv_label_set_text(g_pinDots, dots);
 }
 
+// So roda na migracao: decifra com o PIN antigo e regrava com a chave do chip.
 static void pin_submit() {
-  if (g_state == ST_SETUP_PIN) {
-    if (!g_pinConfirming) {
-      strlcpy(g_pinFirst, g_pinEntry, sizeof(g_pinFirst));
-      g_pinConfirming = true;
-      g_pinEntry[0] = 0;
-      pin_update_dots();
-      if (g_pinMsg) lv_label_set_text(g_pinMsg, TRS("Confirme o PIN", "Confirm the PIN"));
-      return;
-    }
-    // confirmando
-    if (strcmp(g_pinFirst, g_pinEntry) != 0) {
-      g_pinConfirming = false;
-      g_pinFirst[0] = 0; g_pinEntry[0] = 0;
-      pin_update_dots();
-      if (g_pinMsg) lv_label_set_text(g_pinMsg, TRS("Nao bateu. Defina de novo.", "Didn't match. Set it again."));
-      return;
-    }
-    // PIN definido -> cifra o token pendente e salva
-    if (!encryptToken(g_pendingToken, g_pinEntry, g_blob)) {
-      if (g_pinMsg) lv_label_set_text(g_pinMsg, TRS("Falha ao cifrar. Tente de novo.", "Encryption failed. Try again."));
-      g_pinConfirming = false; g_pinFirst[0] = 0; g_pinEntry[0] = 0; pin_update_dots();
-      return;
-    }
-    accountSave(g_prefs, g_accts, g_tokenTargetSlot, g_blob, g_pendingLabel);
-    accountSetActive(g_prefs, g_accts, g_tokenTargetSlot);
-    g_pendingLabel[0] = 0;
-    strlcpy(g_sessionPin, g_pinEntry, sizeof(g_sessionPin));
-    strlcpy(g_token, g_pendingToken, sizeof(g_token));
-    memset(g_pendingToken, 0, sizeof(g_pendingToken));
-    g_hasToken = true; g_onboarding = false;
-    g_pinAttempts = 0; save_attempts();
-    g_pinConfirming = false;
-    memset(g_pinFirst, 0, sizeof(g_pinFirst));   // zera de fato: os digitos ficam
-    memset(g_pinEntry, 0, sizeof(g_pinEntry));   // na RAM se so o [0] for limpo
-    Serial.println("[PIN] token cifrado e salvo");
-    request_state(g_wifi.isConnected() ? ST_LOADING : ST_WIFI);
-    return;
-  }
-
-  // ST_PIN: tenta decifrar
   if (decryptToken(g_blob, g_pinEntry, g_token, sizeof(g_token))) {
     g_pinAttempts = 0; save_attempts();
-    strlcpy(g_sessionPin, g_pinEntry, sizeof(g_sessionPin));
     memset(g_pinEntry, 0, sizeof(g_pinEntry));
-    Serial.printf("[PIN] ok, token %d chars\n", (int)strlen(g_token));
+
+    EncryptedBlob nb;
+    if (encryptToken(g_token, deviceSecret(), nb)) {
+      accountSave(g_prefs, g_accts, g_accts.active, nb, g_accts.label[g_accts.active]);
+      g_blob = nb;
+      Serial.println("[PIN] token migrado para a chave do chip; nao sera mais pedido");
+    } else {
+      Serial.println("[PIN] FALHA ao regravar com a chave do chip");
+    }
+    g_migratingPin = false;
+
     if (!g_wifi.isConnected()) g_wifi.autoConnect(WIFI_CONNECT_TIMEOUT_MS);
     request_state(g_wifi.isConnected() ? ST_LOADING : ST_WIFI);
   } else {
@@ -414,8 +387,6 @@ static void pin_kb_cb(lv_event_t *e) {
   if (strcmp(txt, LV_SYMBOL_LEFT) == 0) {
     if (len > 0) g_pinEntry[len - 1] = 0;
     pin_update_dots();
-  } else if (strcmp(txt, LV_SYMBOL_OK) == 0) {
-    if (len == PIN_LEN) pin_submit();
   } else if (len < PIN_LEN) {
     g_pinEntry[len] = txt[0];
     g_pinEntry[len + 1] = 0;
@@ -426,9 +397,7 @@ static void pin_kb_cb(lv_event_t *e) {
 
 static void ui_pin() {
   lv_obj_t *scr = lv_screen_active();
-  const char *title = (g_state == ST_SETUP_PIN)
-    ? (g_pinConfirming ? TRS("Confirme o PIN", "Confirm the PIN") : TRS("Defina um PIN", "Set a PIN"))
-    : TRS("Digite o PIN", "Enter the PIN");
+  const char *title = TRS("PIN, pela ultima vez", "PIN, one last time");
   lv_obj_t *t = mklabel(scr, title, &lv_font_montserrat_18, C_TEXT);
   lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 4);
 
@@ -436,9 +405,8 @@ static void ui_pin() {
   lv_obj_align(g_pinDots, LV_ALIGN_TOP_MID, 0, 28);
   pin_update_dots();
 
-  const char *sub = (g_state == ST_SETUP_PIN)
-    ? TRS("Voce vai digita-lo a cada boot.", "You'll type it on every boot.")
-    : TRS("Necessario para desbloquear o token.", "Needed to unlock the token.");
+  const char *sub = TRS("Para migrar o token; nao sera pedido de novo.",
+                        "To migrate the token; it won't be asked again.");
   g_pinMsg = mklabel(scr, sub, &lv_font_montserrat_12, C_MUTED);
   lv_obj_align(g_pinMsg, LV_ALIGN_TOP_MID, 0, 58);
 
@@ -460,6 +428,40 @@ static void ui_pin() {
     char m[48]; snprintf(m, sizeof(m), TRS("Aguarde %ds", "Wait %ds"), rem);
     lv_label_set_text(g_pinMsg, m);
   }
+}
+
+// ============================================================
+// Tela: desbloqueio — um toque e entra
+// ============================================================
+// Substitui o teclado de PIN. Nao guarda segredo nenhum: o token ja foi aberto
+// no setup() pela chave do chip. Existe so para a placa nao cair direto no
+// dashboard com dados velhos enquanto o WiFi ainda sobe, e para dar um lugar
+// obvio de tocar quando ela e ligada na tomada.
+static void unlock_cb(lv_event_t *e) {
+  (void)e;
+  request_state(g_wifi.isConnected() ? ST_LOADING : ST_WIFI);
+}
+
+static void ui_unlock() {
+  lv_obj_t *scr = lv_screen_active();
+
+  lv_obj_t *icon = lv_image_create(scr);
+  lv_image_set_src(icon, &img_clawd_xl);
+  lv_image_set_pivot(icon, 0, 0);
+  lv_image_set_scale(icon, 200);
+  lv_obj_update_layout(icon);
+  lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 22);
+
+  lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_18, C_TEXT);
+  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 118);
+
+  // O alvo e a tela inteira acima da zona morta: nao ha como errar o toque.
+  lv_obj_t *b = mkbtn(scr, TRS("toque para comecar", "tap to start"),
+                      &lv_font_montserrat_16, C_SURFACE2, C_ACCENT);
+  lv_obj_set_size(b, 260, 52);
+  lv_obj_set_ext_click_area(b, 40);
+  lv_obj_align(b, LV_ALIGN_TOP_MID, 0, 150);
+  lv_obj_add_event_cb(b, unlock_cb, LV_EVENT_CLICKED, NULL);
 }
 
 // ============================================================
@@ -674,9 +676,8 @@ static void handleTokenPost() {
   if (ok) {
     strlcpy(g_pendingToken, t.c_str(), sizeof(g_pendingToken));
     g_usage = tmp;                              // já temos dados p/ o dashboard
-    g_pinConfirming = false; g_pinFirst[0] = 0; g_pinEntry[0] = 0;
-    g_tokenGot = true;                          // loop -> ST_SETUP_PIN
-    if (g_tokMsg) lv_label_set_text(g_tokMsg, TRS("token OK! defina o PIN", "token OK! set the PIN"));
+    g_tokenGot = true;                          // loop -> finalize_pending_token()
+    if (g_tokMsg) lv_label_set_text(g_tokMsg, TRS("token OK!", "token OK!"));
     g_web->send(200, "text/html; charset=utf-8", web_result(true, ""));
   } else {
     String m = String("A API recusou o token (") + tmp.error + "). Confira e cole de novo.";
@@ -934,7 +935,7 @@ static bool switch_account(int slot) {
   EncryptedBlob b;
   if (!accountLoadBlob(g_prefs, slot, b)) return false;
   char tok[200];
-  if (!decryptToken(b, g_sessionPin, tok, sizeof(tok))) return false;
+  if (!decryptToken(b, deviceSecret(), tok, sizeof(tok))) return false;
 
   accountSetActive(g_prefs, g_accts, slot);
   g_blob = b;
@@ -949,7 +950,7 @@ static bool switch_account(int slot) {
 
 static void finalize_pending_token() {
   EncryptedBlob nb;
-  if (!encryptToken(g_pendingToken, g_sessionPin, nb)) {
+  if (!encryptToken(g_pendingToken, deviceSecret(), nb)) {
     memset(g_pendingToken, 0, sizeof(g_pendingToken));
     request_state(ST_SETTINGS);
     return;
@@ -1637,7 +1638,7 @@ static void acct_del_cb(lv_event_t *e) {
   if (wasActive) {
     EncryptedBlob b; char tok[200];
     if (accountLoadBlob(g_prefs, g_accts.active, b) &&
-        decryptToken(b, g_sessionPin, tok, sizeof(tok))) {
+        decryptToken(b, deviceSecret(), tok, sizeof(tok))) {
       g_blob = b;
       strlcpy(g_token, tok, sizeof(g_token));
       memset(tok, 0, sizeof(tok));
@@ -1882,8 +1883,8 @@ static void render_state() {
   lv_obj_set_style_bg_opa(lv_screen_active(), LV_OPA_COVER, 0);
 
   switch (g_state) {
-    case ST_PIN:
-    case ST_SETUP_PIN: ui_pin(); break;
+    case ST_UNLOCK:    ui_unlock(); break;
+    case ST_PIN:       ui_pin(); break;
     case ST_WIFI:      ui_wifi(); break;
     case ST_TOKEN:     ui_token(); break;
     case ST_LOADING:   ui_loading(g_wifi.isConnected() ? g_wifi.getSSID().c_str()
@@ -2000,9 +2001,17 @@ void setup() {
 
   boot_status(TRS("Conectando ao WiFi...", "Connecting to WiFi..."));
   if (g_hasToken) {
-    // Tenta WiFi cedo (em paralelo o usuário digita o PIN)
     g_wifi.autoConnect(WIFI_CONNECT_TIMEOUT_MS, boot_wifi_tick);
-    request_state(ST_PIN);
+    // A chave do chip abre o token sem perguntar nada. Se nao abrir, o token
+    // foi cifrado pela versao com PIN: pede o PIN uma vez e regrava.
+    if (decryptToken(g_blob, deviceSecret(), g_token, sizeof(g_token))) {
+      Serial.printf("[AUTH] token aberto pela chave do chip (%d chars)\n", (int)strlen(g_token));
+      request_state(ST_UNLOCK);
+    } else {
+      Serial.println("[AUTH] chave do chip nao abriu: token da versao com PIN, migrando");
+      g_migratingPin = true;
+      request_state(ST_PIN);
+    }
   } else {
     g_onboarding = true;
     // Se já há WiFi salvo (reboot no meio do onboarding), pula direto p/ o token
@@ -2019,8 +2028,7 @@ void loop() {
     g_web->handleClient();
     if (g_state == ST_TOKEN && g_tokenGot) {
       g_tokenGot = false;
-      if (g_onboarding || !g_sessionPin[0]) request_state(ST_SETUP_PIN);
-      else finalize_pending_token();
+      finalize_pending_token();
     }
   }
 

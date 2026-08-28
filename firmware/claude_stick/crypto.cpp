@@ -6,6 +6,17 @@
 #include "esp_mac.h"
 #include "esp_random.h"
 #include <string.h>
+#include <stdio.h>
+
+const char* deviceSecret() {
+    static char secret[64] = {0};
+    if (secret[0]) return secret;
+    uint8_t mac[6] = {0};
+    esp_efuse_mac_get_default(mac);
+    snprintf(secret, sizeof(secret), "%02x%02x%02x%02x%02x%02x/" DEVICE_KEY_SALT,
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return secret;
+}
 
 void deriveKey(const char* pin, const uint8_t* salt, size_t saltLen, uint8_t* keyOut32) {
     mbedtls_sha256_context ctx;

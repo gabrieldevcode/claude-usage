@@ -31,10 +31,32 @@
 #define SCREEN_HEIGHT  240
 #define SPI_FREQ       40000000UL
 
-// Buffer parcial do LVGL, em linhas. Esta placa NAO tem PSRAM: o maior bloco
-// contiguo alocavel e de ~110 KB, e um framebuffer cheio (320x240x2) pede
-// 153 KB. Sao dois buffers de 40 linhas = 2 x 25.600 = 50 KB.
-#define LVGL_BUF_LINES 40
+// Buffer parcial do LVGL. Esta placa NAO tem PSRAM, e o tamanho daqui foi
+// decidido por medicao, depois de uma investigacao inteira.
+//
+// O sintoma era: a busca na API funcionava as tres primeiras vezes, logo apos o
+// boot, e falhava para sempre depois disso, com HTTP -1. Foram descartados, um
+// a um e com numero: Wi-Fi (RSSI -49 dBm), DNS (resolve em 0 ms), TCP na 443
+// (conecta em 15 ms), relogio (sincronizado, 118 s do PC) e o proprio bundle de
+// certificados (o OpenSSL fecha a cadeia da Anthropic com os mesmos 3 certs de
+// certs.cpp). O mbedtls dizia "X509 - Certificate verification failed", e a
+// MESMA requisicao com setInsecure() passava no mesmo instante — ou seja, o que
+// quebrava era so percorrer a cadeia.
+//
+// A cadeia da Anthropic e ECDSA P-384 com SHA-384, cuja verificacao no mbedtls
+// pede blocos grandes e contiguos. O limiar medido nesta placa:
+//
+//   maior bloco 53 KB -> validacao falha sempre
+//   maior bloco 78 KB -> validacao passa (HTTP 200 com o dashboard montado)
+//
+// As tres primeiras buscas passavam porque aconteciam antes de o dashboard
+// existir, quando ainda havia ~110 KB de bloco livre. Nao tinha nada a ver com
+// o relogio, que so por coincidencia sincronizava no mesmo intervalo.
+//
+// Dai buffer UNICO de 24 linhas (320 x 24 x 2 = 15.360 B) em vez de dois de 32.
+// Custa um pouco de fluidez no redesenho; e o preco de o TLS fechar.
+#define LVGL_BUF_LINES 24
+#define LVGL_BYTES_PER_PX 2   // RGB565; ver a nota em setup()
 
 // ── Touch resistivo XPT2046 (barramento SPI proprio) ─────
 // A varredura I2C nao achou nada: esta placa nao tem touch capacitivo.

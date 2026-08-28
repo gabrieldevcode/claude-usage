@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <time.h>
 
 #define H5U "anthropic-ratelimit-unified-5h-utilization"
 #define H5R "anthropic-ratelimit-unified-5h-reset"
@@ -51,9 +52,19 @@ bool fetchUsage(const char* token, UsageData& out) {
     Serial.printf("[API] HTTP %d\n", code);
 
     if (code <= 0) {
+        // O HTTPClient reduz qualquer falha de conexao a -1. O motivo real
+        // esta no mbedtls, e so o WiFiClientSecure o guarda.
+        char tlsErr[160] = {0};
+        client.lastError(tlsErr, sizeof(tlsErr));
+        time_t agora = time(nullptr);
+        Serial.printf("[API] falha code=%d  relogio=%ld (%s)  tls=\"%s\"\n",
+                      code, (long)agora,
+                      agora > 1000000000L ? "ajustado" : "NAO ajustado",
+                      tlsErr[0] ? tlsErr : "(vazio)");
+        https.end();
+
         snprintf(out.error, sizeof(out.error), "http_%d", code);
         out.ok = false;
-        https.end();
         return false;
     }
 

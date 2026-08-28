@@ -53,6 +53,16 @@
 static uint8_t g_lang = 0;
 #define TRS(pt, en) (g_lang ? (en) : (pt))
 
+// ---- Zona morta do touch ----
+// O painel resistivo desta placa nao responde no canto inferior direito.
+// Medido com firmware/touchmap: das 192 celulas de 20 px, 5 nao respondem, e
+// todas ficam na ultima linha (y >= 220), concentradas em x >= 240. O resto da
+// tela responde inteiro, bordas incluidas.
+// Regra que segue disso: nenhum alvo de toque pode depender dessa faixa. Os
+// widgets abaixo param em y = 216 por causa dela, nao por estetica.
+#define TOUCH_DEAD_Y 220
+#define TOUCH_SAFE_BOTTOM 216
+
 // ---- Hardware ----
 // Sem PSRAM nesta placa: nao ha Arduino_Canvas (framebuffer inteiro em RAM).
 // O LVGL desenha em buffers parciais e cada regiao suja vai direto ao driver.
@@ -156,6 +166,9 @@ static lv_point_precise_t g_mXPts[NMODELS][4][2];   // olhos em X (mood 3)
 
 // ---- Ponteiros de UI do dashboard (zerados a cada build de ST_MAIN) ----
 #define NTILES 4
+// Centro horizontal de cada mascote no tile de modelos. Em 320 px o passo e de
+// 80 px (era 120 na tela de 480), e por isso o sprite tambem e reduzido.
+static const int MODEL_CX[4] = {40, 120, 200, 280};
 #define NSEG 18                       // segmentos do medidor de janela
 struct DashUI {
   lv_obj_t *tv, *tile[NTILES], *dots[NTILES];
@@ -479,26 +492,28 @@ static void ui_pin() {
   const char *title = (g_state == ST_SETUP_PIN)
     ? (g_pinConfirming ? TRS("Confirme o PIN", "Confirm the PIN") : TRS("Defina um PIN", "Set a PIN"))
     : TRS("Digite o PIN", "Enter the PIN");
-  lv_obj_t *t = mklabel(scr, title, &lv_font_montserrat_22, C_TEXT);
-  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 14);
+  lv_obj_t *t = mklabel(scr, title, &lv_font_montserrat_18, C_TEXT);
+  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 4);
 
-  g_pinDots = mklabel(scr, "", &lv_font_montserrat_28, C_ACCENT);
-  lv_obj_align(g_pinDots, LV_ALIGN_TOP_MID, 0, 48);
+  g_pinDots = mklabel(scr, "", &lv_font_montserrat_24, C_ACCENT);
+  lv_obj_align(g_pinDots, LV_ALIGN_TOP_MID, 0, 28);
   pin_update_dots();
 
   const char *sub = (g_state == ST_SETUP_PIN)
     ? TRS("Voce vai digita-lo a cada boot.", "You'll type it on every boot.")
     : TRS("Necessario para desbloquear o token.", "Needed to unlock the token.");
-  g_pinMsg = mklabel(scr, sub, &lv_font_montserrat_14, C_MUTED);
-  lv_obj_align(g_pinMsg, LV_ALIGN_TOP_MID, 0, 86);
+  g_pinMsg = mklabel(scr, sub, &lv_font_montserrat_12, C_MUTED);
+  lv_obj_align(g_pinMsg, LV_ALIGN_TOP_MID, 0, 58);
 
   lv_obj_t *bm = lv_buttonmatrix_create(scr);
   lv_buttonmatrix_set_map(bm, pin_map);
-  lv_obj_set_size(bm, 280, 180);
-  lv_obj_align(bm, LV_ALIGN_BOTTOM_MID, 0, -10);
+  // A tecla OK e a ultima da ultima fila: encostada embaixo ela cairia na zona
+  // morta do painel, e nao haveria como confirmar o PIN.
+  lv_obj_set_size(bm, 240, 140);
+  lv_obj_align(bm, LV_ALIGN_BOTTOM_MID, 0, -(SCREEN_HEIGHT - TOUCH_SAFE_BOTTOM));
   lv_obj_set_style_bg_color(bm, lv_color_hex(C_BG), 0);
   lv_obj_set_style_border_width(bm, 0, 0);
-  lv_obj_set_style_text_font(bm, &lv_font_montserrat_24, 0);
+  lv_obj_set_style_text_font(bm, &lv_font_montserrat_20, 0);
   lv_obj_set_style_bg_color(bm, lv_color_hex(C_SURFACE2), LV_PART_ITEMS);
   lv_obj_set_style_text_color(bm, lv_color_hex(C_TEXT), LV_PART_ITEMS);
   lv_obj_add_event_cb(bm, pin_kb_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -566,26 +581,28 @@ static void wifi_rescan_cb(lv_event_t *e) { (void)e; wifi_populate(); }
 
 static void ui_wifi() {
   lv_obj_t *scr = lv_screen_active();
-  lv_obj_t *title = mklabel(scr, TRS("Configurar WiFi", "Configure WiFi"), &lv_font_montserrat_20, C_TEXT);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 12);
+  lv_obj_t *title = mklabel(scr, TRS("Configurar WiFi", "Configure WiFi"), &lv_font_montserrat_16, C_TEXT);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
 
-  lv_obj_t *rb = mkbtn(scr, TRS("Reescanear", "Rescan"), &lv_font_montserrat_14, C_SURFACE2, C_ACCENT);
-  lv_obj_align(rb, LV_ALIGN_TOP_RIGHT, -12, 8);
+  lv_obj_t *rb = mkbtn(scr, TRS("Reescanear", "Rescan"), &lv_font_montserrat_12, C_SURFACE2, C_ACCENT);
+  lv_obj_set_size(rb, 88, 30);
+  lv_obj_align(rb, LV_ALIGN_TOP_RIGHT, -6, 4);
   lv_obj_add_event_cb(rb, wifi_rescan_cb, LV_EVENT_CLICKED, NULL);
 
   if (!g_onboarding && g_hasToken) {
     lv_obj_t *bk = mkbtn(scr, TRS(LV_SYMBOL_LEFT " Voltar", LV_SYMBOL_LEFT " Back"),
-                         &lv_font_montserrat_14, C_SURFACE2, C_MUTED);
-    lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -150, 8);
+                         &lv_font_montserrat_12, C_SURFACE2, C_MUTED);
+    lv_obj_set_size(bk, 78, 30);
+    lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -100, 4);
     lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)(g_usage.ok ? ST_MAIN : ST_SETTINGS));
   }
 
-  wifi_status = mklabel(scr, "...", &lv_font_montserrat_14, C_MUTED);
-  lv_obj_align(wifi_status, LV_ALIGN_TOP_LEFT, 14, 44);
+  wifi_status = mklabel(scr, "...", &lv_font_montserrat_12, C_MUTED);
+  lv_obj_align(wifi_status, LV_ALIGN_TOP_LEFT, 10, 34);
 
   wifi_list = lv_list_create(scr);
-  lv_obj_set_size(wifi_list, 452, 246);
-  lv_obj_align(wifi_list, LV_ALIGN_TOP_MID, 0, 68);
+  lv_obj_set_size(wifi_list, 304, 162);   // termina em y=216: ver TOUCH_DEAD_Y
+  lv_obj_align(wifi_list, LV_ALIGN_TOP_MID, 0, 54);
   lv_obj_set_style_bg_color(wifi_list, lv_color_hex(C_BG), 0);
   lv_obj_set_style_border_color(wifi_list, lv_color_hex(C_BORDER), 0);
   // clique é anexado por botão em wifi_populate()
@@ -594,11 +611,15 @@ static void ui_wifi() {
   lv_textarea_set_one_line(wifi_ta, true);
   lv_textarea_set_password_mode(wifi_ta, true);
   lv_textarea_set_placeholder_text(wifi_ta, TRS("senha do WiFi", "WiFi password"));
-  lv_obj_set_size(wifi_ta, 452, 44);
-  lv_obj_align(wifi_ta, LV_ALIGN_TOP_MID, 0, 66);
+  lv_obj_set_size(wifi_ta, 304, 38);
+  lv_obj_align(wifi_ta, LV_ALIGN_TOP_MID, 0, 52);
   lv_obj_add_flag(wifi_ta, LV_OBJ_FLAG_HIDDEN);
 
   wifi_kb = lv_keyboard_create(scr);
+  // Sem este recuo a tecla de confirmar cai na zona morta do painel e nao ha
+  // como enviar a senha (ver TOUCH_DEAD_Y).
+  lv_obj_set_size(wifi_kb, SCREEN_WIDTH, 130);
+  lv_obj_align(wifi_kb, LV_ALIGN_BOTTOM_MID, 0, -(SCREEN_HEIGHT - TOUCH_SAFE_BOTTOM));
   lv_obj_add_flag(wifi_kb, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_event_cb(wifi_kb, wifi_kb_cb, LV_EVENT_ALL, NULL);
 
@@ -802,38 +823,42 @@ static void ui_token() {
 
   if (!g_onboarding && g_hasToken) {
     lv_obj_t *bk = mkbtn(scr, TRS(LV_SYMBOL_LEFT " Voltar", LV_SYMBOL_LEFT " Back"),
-                         &lv_font_montserrat_14, C_SURFACE2, C_MUTED);
-    lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -12, 8);
+                         &lv_font_montserrat_12, C_SURFACE2, C_MUTED);
+    lv_obj_set_size(bk, 78, 30);
+    lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -6, 4);
     lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)(g_usage.ok ? ST_MAIN : ST_SETTINGS));
   }
 
   lv_obj_t *mark = build_claude_mark(scr);
-  lv_obj_align(mark, LV_ALIGN_TOP_MID, 0, 8);
+  lv_obj_align(mark, LV_ALIGN_TOP_MID, 0, 0);
 
   lv_obj_t *cap = mklabel(scr, TRS("Cole o token pelo navegador, em:",
-                                   "Paste the token via browser, at:"), &lv_font_montserrat_16, C_MUTED);
-  lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, 108);
+                                   "Paste the token via browser, at:"), &lv_font_montserrat_12, C_MUTED);
+  lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, 94);
 
   String url = String("http://") + WiFi.localIP().toString();
-  lv_obj_t *ip = mklabel(scr, url.c_str(), &lv_font_montserrat_28, C_ACCENT);
-  lv_obj_align(ip, LV_ALIGN_TOP_MID, 0, 132);
+  lv_obj_t *ip = mklabel(scr, url.c_str(), &lv_font_montserrat_20, C_ACCENT);
+  lv_obj_align(ip, LV_ALIGN_TOP_MID, 0, 110);
 
   lv_obj_t *hint = mklabel(scr, TRS("abra esse endereco no PC/celular na MESMA rede WiFi",
                                     "open this address on a PC/phone on the SAME WiFi"),
                            &lv_font_montserrat_12, C_MUTED);
-  lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 174);
+  lv_obj_set_width(hint, 300);
+  lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+  lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 138);
 
   lv_obj_t *sp = lv_spinner_create(scr);
   lv_spinner_set_anim_params(sp, 1200, 70);
-  lv_obj_set_size(sp, 36, 36);
-  lv_obj_align(sp, LV_ALIGN_BOTTOM_MID, 0, -46);
+  lv_obj_set_size(sp, 26, 26);
+  lv_obj_align(sp, LV_ALIGN_BOTTOM_MID, 0, -42);
   lv_obj_set_style_arc_color(sp, lv_color_hex(C_SURFACE2), LV_PART_MAIN);
   lv_obj_set_style_arc_color(sp, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
   lv_obj_set_style_arc_width(sp, 5, LV_PART_MAIN);
   lv_obj_set_style_arc_width(sp, 5, LV_PART_INDICATOR);
 
-  g_tokMsg = mklabel(scr, TRS("aguardando o token...", "waiting for the token..."), &lv_font_montserrat_14, C_MUTED);
-  lv_obj_align(g_tokMsg, LV_ALIGN_BOTTOM_MID, 0, -14);
+  g_tokMsg = mklabel(scr, TRS("aguardando o token...", "waiting for the token..."), &lv_font_montserrat_12, C_MUTED);
+  lv_obj_align(g_tokMsg, LV_ALIGN_BOTTOM_MID, 0, -8);
 
   // sobe o servidor web (formulario do token)
   g_web = new WebServer(80);
@@ -849,27 +874,30 @@ static void ui_token() {
 // ============================================================
 static void ui_message(const char *title, const char *sub, uint32_t color) {
   lv_obj_t *scr = lv_screen_active();
-  lv_obj_t *t = mklabel(scr, title, &lv_font_montserrat_24, color);
-  lv_obj_align(t, LV_ALIGN_CENTER, 0, -16);
+  lv_obj_t *t = mklabel(scr, title, &lv_font_montserrat_20, color);
+  lv_obj_align(t, LV_ALIGN_CENTER, 0, -14);
   if (sub && sub[0]) {
-    lv_obj_t *s = mklabel(scr, sub, &lv_font_montserrat_16, C_MUTED);
-    lv_obj_align(s, LV_ALIGN_CENTER, 0, 20);
+    lv_obj_t *s = mklabel(scr, sub, &lv_font_montserrat_14, C_MUTED);
+    lv_obj_set_width(s, 300);
+    lv_obj_set_style_text_align(s, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(s, LV_LABEL_LONG_WRAP);
+    lv_obj_align(s, LV_ALIGN_CENTER, 0, 18);
   }
 }
 static void ui_loading(const char *sub) {
   lv_obj_t *scr = lv_screen_active();
   lv_obj_t *mark = build_claude_mark(scr);
-  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -50);
-  lv_obj_t *t = mklabel(scr, TRS("Carregando seu uso...", "Loading your usage..."), &lv_font_montserrat_18, C_TEXT);
-  lv_obj_align(t, LV_ALIGN_CENTER, 0, 28);
+  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -46);
+  lv_obj_t *t = mklabel(scr, TRS("Carregando seu uso...", "Loading your usage..."), &lv_font_montserrat_16, C_TEXT);
+  lv_obj_align(t, LV_ALIGN_CENTER, 0, 22);
   if (sub && sub[0]) {
     lv_obj_t *s = mklabel(scr, sub, &lv_font_montserrat_12, C_MUTED);
-    lv_obj_align(s, LV_ALIGN_CENTER, 0, 52);
+    lv_obj_align(s, LV_ALIGN_CENTER, 0, 44);
   }
   lv_obj_t *spn = lv_spinner_create(scr);
   lv_spinner_set_anim_params(spn, 1200, 70);
-  lv_obj_set_size(spn, 34, 34);
-  lv_obj_align(spn, LV_ALIGN_CENTER, 0, 90);
+  lv_obj_set_size(spn, 28, 28);
+  lv_obj_align(spn, LV_ALIGN_CENTER, 0, 76);
   lv_obj_set_style_arc_color(spn, lv_color_hex(C_SURFACE2), LV_PART_MAIN);
   lv_obj_set_style_arc_color(spn, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
   lv_obj_set_style_arc_width(spn, 4, LV_PART_MAIN);
@@ -893,16 +921,16 @@ static void boot_splash(const char *sub) {
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
   lv_obj_t *mark = build_claude_mark(scr);
-  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -50);
-  lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_18, C_TEXT);
-  lv_obj_align(t, LV_ALIGN_CENTER, 0, 28);
+  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -46);
+  lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_16, C_TEXT);
+  lv_obj_align(t, LV_ALIGN_CENTER, 0, 22);
   g_bootSub = mklabel(scr, sub ? sub : "", &lv_font_montserrat_12, C_MUTED);
-  lv_obj_align(g_bootSub, LV_ALIGN_CENTER, 0, 52);
+  lv_obj_align(g_bootSub, LV_ALIGN_CENTER, 0, 44);
 
   lv_obj_t *spn = lv_spinner_create(scr);
   lv_spinner_set_anim_params(spn, 1200, 70);
-  lv_obj_set_size(spn, 34, 34);
-  lv_obj_align(spn, LV_ALIGN_CENTER, 0, 90);
+  lv_obj_set_size(spn, 28, 28);
+  lv_obj_align(spn, LV_ALIGN_CENTER, 0, 76);
   lv_obj_set_style_arc_color(spn, lv_color_hex(C_SURFACE2), LV_PART_MAIN);
   lv_obj_set_style_arc_color(spn, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
   lv_obj_set_style_arc_width(spn, 4, LV_PART_MAIN);
@@ -921,7 +949,7 @@ static void boot_status(const char *sub) {
 
 // Passado ao autoConnect: mantem o spinner girando e diz qual rede esta sendo
 // tentada. So redesenha quando o texto muda — a cada 100ms um refresh completo
-// de 320x480 competiria com o proprio WiFi.
+// de 320x240 competiria com o proprio WiFi.
 static void boot_wifi_tick(const char *ssid, int idx, int total) {
   static char ultimo[64] = "";
   char s[64];
@@ -1255,28 +1283,33 @@ static int model_mood(int i) {
   return 3;                              // rede / 5xx / auth
 }
 
+// Escala do sprite do mascote, em 1/256 (LVGL usa 256 = 100%). 200/256 leva o
+// img_clawd_md de 88x56 para 69x44, que e o que cabe no passo de 80 px do tile.
+#define MASC_SCALE 200
+#define MS(v) ((int)((v) * MASC_SCALE / 256))
+
 // adereço pixel que identifica cada modelo (flutuando sobre a cabeça)
 static void build_accessory(lv_obj_t *c, int model) {
   switch (model) {
     case 0:                              // Haiku: raio
-      rrect(c, 46, 0, 8, 7, 1, C_WARN);
-      rrect(c, 41, 5, 8, 7, 1, C_WARN);
-      rrect(c, 46, 10, 8, 7, 1, C_WARN);
+      rrect(c, MS(46), MS(0), MS(8), MS(7), 1, C_WARN);
+      rrect(c, MS(41), MS(5), MS(8), MS(7), 1, C_WARN);
+      rrect(c, MS(46), MS(10), MS(8), MS(7), 1, C_WARN);
       break;
     case 1:                              // Sonnet: nota musical
-      rrect(c, 50, 0, 10, 4, 1, 0x7DD3FC);
-      rrect(c, 50, 0, 4, 13, 1, 0x7DD3FC);
-      rrect(c, 44, 10, 8, 7, 3, 0x7DD3FC);
+      rrect(c, MS(50), MS(0), MS(10), MS(4), 1, 0x7DD3FC);
+      rrect(c, MS(50), MS(0), MS(4), MS(13), 1, 0x7DD3FC);
+      rrect(c, MS(44), MS(10), MS(8), MS(7), 3, 0x7DD3FC);
       break;
     case 2:                              // Opus: coroa
-      rrect(c, 30, 4, 7, 8, 1, C_WARN);
-      rrect(c, 41, 1, 7, 11, 1, C_WARN);
-      rrect(c, 52, 4, 7, 8, 1, C_WARN);
-      rrect(c, 30, 12, 29, 6, 1, C_WARN);
+      rrect(c, MS(30), MS(4), MS(7), MS(8), 1, C_WARN);
+      rrect(c, MS(41), MS(1), MS(7), MS(11), 1, C_WARN);
+      rrect(c, MS(52), MS(4), MS(7), MS(8), 1, C_WARN);
+      rrect(c, MS(30), MS(12), MS(29), MS(6), 1, C_WARN);
       break;
     case 3:                              // Fable: faisca (estrela 4 pontas)
-      rrect(c, 41, 0, 6, 17, 2, 0xC4B5FD);
-      rrect(c, 36, 6, 16, 6, 2, 0xC4B5FD);
+      rrect(c, MS(41), MS(0), MS(6), MS(17), 2, 0xC4B5FD);
+      rrect(c, MS(36), MS(6), MS(16), MS(6), 2, 0xC4B5FD);
       break;
   }
 }
@@ -1285,20 +1318,24 @@ static void build_accessory(lv_obj_t *c, int model) {
 static void build_model_mascot(lv_obj_t *parent, int cx, int i) {
   if (g_mascN >= NMODELS) return;
   int mood = model_mood(i);
-  int baseY = 14;
+  int baseY = 4;
   lv_obj_t *c = lv_obj_create(parent);
-  lv_obj_set_pos(c, cx - 44, baseY); lv_obj_set_size(c, 88, 80);
+  lv_obj_set_pos(c, cx - 36, baseY); lv_obj_set_size(c, 72, 64);
   lv_obj_set_style_bg_opa(c, 0, 0); lv_obj_set_style_border_width(c, 0, 0);
   lv_obj_set_style_pad_all(c, 0, 0); lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
 
   lv_obj_t *img = lv_image_create(c);
   lv_image_set_src(img, &img_clawd_md);
-  lv_obj_set_pos(img, 0, 20);
+  // pivot na origem: com o pivot no centro (padrao) a imagem escalada sairia do
+  // lugar e as sobreposicoes de olho nao teriam mais como acompanhar.
+  lv_image_set_pivot(img, 0, 0);
+  lv_image_set_scale(img, MASC_SCALE);
+  lv_obj_set_pos(img, 0, MS(20));
 
   build_accessory(c, i);
 
-  const int ex[2] = {CLAWD_MD_EYE0_X, CLAWD_MD_EYE1_X};
-  const int ey = CLAWD_MD_EYE0_Y + 20, ew = CLAWD_MD_EYE0_W, eh = CLAWD_MD_EYE0_H;
+  const int ex[2] = {MS(CLAWD_MD_EYE0_X), MS(CLAWD_MD_EYE1_X)};
+  const int ey = MS(CLAWD_MD_EYE0_Y + 20), ew = MS(CLAWD_MD_EYE0_W), eh = MS(CLAWD_MD_EYE0_H);
 
   Mascot &m = g_masc[g_mascN];
   m.cont = c; m.img = img; m.baseY = baseY; m.mood = mood;
@@ -1310,11 +1347,11 @@ static void build_model_mascot(lv_obj_t *parent, int cx, int i) {
       lv_obj_add_flag(m.lid[k], LV_OBJ_FLAG_HIDDEN);
     }
   } else if (mood == 2) {                // limitado: gota de suor
-    m.drop = rrect(c, 70, 24, 6, 10, 3, 0x7DD3FC);
+    m.drop = rrect(c, MS(70), MS(24), MS(6), MS(10), 3, 0x7DD3FC);
   } else if (mood == 3) {                // erro/incidente: cinza + olhos em X
     lv_obj_set_style_image_recolor(img, lv_color_hex(0x6A6A74), 0);
     lv_obj_set_style_image_recolor_opa(img, 190, 0);
-    lv_obj_set_y(img, 24);               // caidinho
+    lv_obj_set_y(img, MS(24));           // caidinho
     for (int k = 0; k < 2; k++) {
       g_mXPts[i][k * 2][0]     = { (lv_value_precise_t)(ex[k] - 2), (lv_value_precise_t)(ey + 2) };
       g_mXPts[i][k * 2][1]     = { (lv_value_precise_t)(ex[k] + ew + 2), (lv_value_precise_t)(ey + eh + 6) };
@@ -1358,46 +1395,48 @@ static void model_chip(int i, char *out, size_t sz, uint32_t *col) {
 // (verde -> vermelho conforme o uso) e countdown grande.
 static void build_win_card(lv_obj_t *t, int x, const char *title,
                            lv_obj_t **pct, lv_obj_t **seg, lv_obj_t **at, lv_obj_t **cd) {
-  lv_obj_t *c = card(t, x, 4, 228, 210);
-  tstatic(c, title, &lv_font_montserrat_14, C_MUTED, 0, 0);
-  *pct = tlabel(c, &lv_font_montserrat_48, C_OK, 0, 20);
+  // Card de 152 px com 14 de padding: 124 px uteis. O medidor de 18 segmentos
+  // passa de um passo de 11 px para 6, e as fontes descem um degrau — a
+  // porcentagem continua sendo o elemento grande do card.
+  lv_obj_t *c = card(t, x, 0, 152, 144);
+  tstatic(c, title, &lv_font_montserrat_12, C_MUTED, 0, 0);
+  *pct = tlabel(c, &lv_font_montserrat_40, C_OK, 0, 14);
   for (int i = 0; i < NSEG; i++)                    // medidor: 18 segmentos
-    seg[i] = rrect(c, i * 11, 82, 8, 16, 2, C_TRACK);
-  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 106);
-  *cd = tlabel(c, &lv_font_montserrat_40, C_TEXT, 0, 124);
+    seg[i] = rrect(c, i * 6, 60, 5, 12, 2, C_TRACK);
+  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 78);
+  *cd = tlabel(c, &lv_font_montserrat_24, C_TEXT, 0, 92);
 }
 static void build_tile_agora(lv_obj_t *t) {
-  build_win_card(t, 8,   TRS("5 HORAS", "5 HOURS"), &g_ui.agPct5, g_ui.seg5, &g_ui.agAt5, &g_ui.agCd5);
-  build_win_card(t, 244, TRS("SEMANA", "WEEK"),     &g_ui.agPct7, g_ui.seg7, &g_ui.agAt7, &g_ui.agCd7);
-  g_ui.agChip = mkchip(t, 8, 220);
-  g_ui.agTok = tlabel(t, &lv_font_montserrat_12, C_MUTED, 130, 226);
-  lv_obj_set_width(g_ui.agTok, 342);
+  build_win_card(t, 4,   TRS("5 HORAS", "5 HOURS"), &g_ui.agPct5, g_ui.seg5, &g_ui.agAt5, &g_ui.agCd5);
+  build_win_card(t, 164, TRS("SEMANA", "WEEK"),     &g_ui.agPct7, g_ui.seg7, &g_ui.agAt7, &g_ui.agCd7);
+  g_ui.agChip = mkchip(t, 4, 148);
+  g_ui.agTok = tlabel(t, &lv_font_montserrat_12, C_MUTED, 110, 152);
+  lv_obj_set_width(g_ui.agTok, 206);
   lv_obj_set_style_text_align(g_ui.agTok, LV_TEXT_ALIGN_RIGHT, 0);
 }
 // Tile 1 — MODELOS: Clawd oficial por modelo (humor animado) + sonda + incidentes.
 static void build_tile_models(lv_obj_t *t) {
-  static const int CENTERS[NMODELS] = {60, 180, 300, 420};
   for (int i = 0; i < NMODELS; i++) {
-    build_model_mascot(t, CENTERS[i], i);
-    lv_obj_t *n = mklabel(t, g_models[i].name, &lv_font_montserrat_16,
+    build_model_mascot(t, MODEL_CX[i], i);
+    lv_obj_t *n = mklabel(t, g_models[i].name, &lv_font_montserrat_12,
                           model_mood(i) == 1 ? C_TEXT : C_MUTED);
-    lv_obj_set_width(n, 104);
+    lv_obj_set_width(n, 76);
     lv_obj_set_style_text_align(n, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_pos(n, CENTERS[i] - 52, 98);
-    g_ui.mChip[i] = mkchip(t, 0, 122);
+    lv_obj_set_pos(n, MODEL_CX[i] - 38, 70);
+    g_ui.mChip[i] = mkchip(t, 0, 88);
   }
   tstatic(t, TRS("sonda real na API \xE2\x80\xA2 1 modelo por ciclo",
                  "live API probe \xE2\x80\xA2 1 model per cycle"),
-          &lv_font_montserrat_12, C_FAINT, 14, 170);
-  g_ui.incident = tlabel(t, &lv_font_montserrat_14, C_MUTED, 14, 194);
-  lv_obj_set_width(g_ui.incident, 452);
+          &lv_font_montserrat_12, C_FAINT, 10, 120);
+  g_ui.incident = tlabel(t, &lv_font_montserrat_12, C_MUTED, 10, 138);
+  lv_obj_set_width(g_ui.incident, 300);
   lv_label_set_long_mode(g_ui.incident, LV_LABEL_LONG_WRAP);
 }
 // Tile 2 — JANELA 5H: histórico + projeção pontilhada até esgotar.
-#define TR_X0 12
-#define TR_Y0 10
-#define TR_W  440
-#define TR_H  126
+#define TR_X0 10
+#define TR_Y0 6
+#define TR_W  288
+#define TR_H  78
 static int tr_x(uint32_t tt, uint32_t ws, uint32_t we) {
   if (we <= ws) return TR_X0;
   long long v = (long long)(tt - ws) * TR_W / (long long)(we - ws);
@@ -1409,10 +1448,10 @@ static int tr_y(float p) {
   return TR_Y0 + TR_H - (int)(p * TR_H / 100.0f);
 }
 static void build_tile_trend(lv_obj_t *t) {
-  tstatic(t, TRS("Janela de 5h", "5-hour window"), &lv_font_montserrat_16, C_TEXT, 14, 2);
-  tstatic(t, TRS("uso real + projecao", "real usage + projection"), &lv_font_montserrat_12, C_FAINT, 320, 6);
+  tstatic(t, TRS("Janela de 5h", "5-hour window"), &lv_font_montserrat_14, C_TEXT, 10, 0);
+  tstatic(t, TRS("uso real + projecao", "real usage + projection"), &lv_font_montserrat_12, C_FAINT, 190, 3);
 
-  lv_obj_t *c = card(t, 8, 26, 464, 170);
+  lv_obj_t *c = card(t, 4, 16, 312, 106);
   lv_obj_set_style_pad_all(c, 0, 0);
 
   // grade: 25/50/75%
@@ -1447,11 +1486,19 @@ static void build_tile_trend(lv_obj_t *t) {
   g_ui.trT0 = tlabel(c, &lv_font_montserrat_12, C_FAINT, TR_X0, TR_Y0 + TR_H + 8);
   g_ui.trT1 = tlabel(c, &lv_font_montserrat_12, C_FAINT, TR_X0 + TR_W - 40, TR_Y0 + TR_H + 8);
 
-  g_ui.trCap = tlabel(t, &lv_font_montserrat_16, C_MUTED, 14, 210);
-  lv_obj_set_width(g_ui.trCap, 452);
+  g_ui.trCap = tlabel(t, &lv_font_montserrat_12, C_MUTED, 10, 128);
+  lv_obj_set_width(g_ui.trCap, 300);
   lv_label_set_long_mode(g_ui.trCap, LV_LABEL_LONG_WRAP);
 }
 // Tile 3 — RITMO: heatmap por hora com filtro de período.
+// Geometria do heatmap, usada por build_tile_heat (que cria as barras) e por
+// heat_redraw (que muda altura e y a cada atualizacao). Em 320 px o passo cai
+// de 18 para 12: 24 barras ocupam 288 px.
+#define HEAT_X0   8
+#define HEAT_STEP 12
+#define HEAT_BAR_W 9
+#define HEAT_BASE 122
+#define HEAT_MAX_H 88
 static void heat_btn_style() {
   const char *names[4] = {TRS("Hoje", "Today"), "7d", "30d", TRS("Tudo", "All")};
   for (int i = 0; i < 4; i++) {
@@ -1474,15 +1521,15 @@ static void heat_btn_cb(lv_event_t *e) {
   heat_redraw();
 }
 static void build_tile_heat(lv_obj_t *t) {
-  tstatic(t, TRS("Ritmo por hora", "Hourly rhythm"), &lv_font_montserrat_16, C_TEXT, 14, 6);
+  tstatic(t, TRS("Ritmo por hora", "Hourly rhythm"), &lv_font_montserrat_14, C_TEXT, 10, 4);
   for (int i = 0; i < 4; i++) {
     lv_obj_t *b = lv_button_create(t);
-    lv_obj_set_size(b, 52, 30);
-    lv_obj_set_pos(b, 246 + i * 56, 0);
-    lv_obj_set_style_radius(b, 15, 0);
+    lv_obj_set_size(b, 38, 24);
+    lv_obj_set_pos(b, 162 + i * 40, 0);
+    lv_obj_set_style_radius(b, 12, 0);
     lv_obj_set_style_shadow_width(b, 0, 0);
     lv_obj_set_ext_click_area(b, 6);
-    lv_obj_t *l = mklabel(b, "", &lv_font_montserrat_14, C_MUTED);
+    lv_obj_t *l = mklabel(b, "", &lv_font_montserrat_12, C_MUTED);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, heat_btn_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     g_ui.heatBtn[i] = b;
@@ -1490,8 +1537,8 @@ static void build_tile_heat(lv_obj_t *t) {
   heat_btn_style();
   for (int h = 0; h < 24; h++) {
     lv_obj_t *bar = lv_obj_create(t);
-    lv_obj_set_size(bar, 13, 4);
-    lv_obj_set_pos(bar, 18 + h * 18, 176);
+    lv_obj_set_size(bar, HEAT_BAR_W, 4);
+    lv_obj_set_pos(bar, HEAT_X0 + h * HEAT_STEP, HEAT_BASE);
     lv_obj_set_style_radius(bar, 3, 0);
     lv_obj_set_style_bg_color(bar, lv_color_hex(C_ACCENT), 0);
     lv_obj_set_style_border_width(bar, 0, 0);
@@ -1502,10 +1549,10 @@ static void build_tile_heat(lv_obj_t *t) {
   for (int i = 0; i < 5; i++) {
     int h = ticks[i]; char s[4]; snprintf(s, sizeof(s), "%dh", h);
     lv_obj_t *l = mklabel(t, s, &lv_font_montserrat_12, C_MUTED);
-    lv_obj_set_pos(l, 14 + h * 18, 186);
+    lv_obj_set_pos(l, HEAT_X0 - 4 + h * HEAT_STEP, HEAT_BASE + 4);
   }
   tstatic(t, TRS("quota da janela 5h queimada em cada hora local",
-                 "5h-window quota burned per local hour"), &lv_font_montserrat_12, C_FAINT, 14, 214);
+                 "5h-window quota burned per local hour"), &lv_font_montserrat_12, C_FAINT, 10, 148);
 }
 
 static void on_tile_changed(lv_event_t *e) {
@@ -1676,9 +1723,9 @@ static void heat_redraw() {
   for (int h = 0; h < 24; h++) {
     if (!g_ui.heat[h]) continue;
     float r = data[h] / mx; if (r < 0) r = 0; if (r > 1) r = 1;
-    int hgt = 4 + (int)(r * 114);
-    lv_obj_set_size(g_ui.heat[h], 13, hgt);
-    lv_obj_set_y(g_ui.heat[h], 176 - hgt);
+    int hgt = 4 + (int)(r * HEAT_MAX_H);
+    lv_obj_set_size(g_ui.heat[h], HEAT_BAR_W, hgt);
+    lv_obj_set_y(g_ui.heat[h], HEAT_BASE - hgt);
     lv_obj_set_style_bg_color(g_ui.heat[h], lv_color_hex(h == curHour ? C_TEXT : C_ACCENT), 0);
     lv_obj_set_style_bg_opa(g_ui.heat[h], (lv_opa_t)(70 + (int)(r * 185)), 0);
   }
@@ -1732,6 +1779,10 @@ static void moment_close() {
 }
 static void moment_close_cb(lv_event_t *e) { (void)e; moment_close(); }
 
+// Escala do Clawd XL no overlay, em 1/256. 184/256 leva 176x110 para 126x79.
+#define MO_SCALE 184
+#define MO(v) ((int)((v) * MO_SCALE / 256))
+
 static void show_moment(int win, int thr) {
   moment_close();
   g_mo.win = win; g_mo.thr = thr;
@@ -1741,7 +1792,7 @@ static void show_moment(int win, int thr) {
 
   lv_obj_t *s = lv_obj_create(lv_layer_top());
   g_mo.scrim = s;
-  lv_obj_set_pos(s, 0, 0); lv_obj_set_size(s, 480, 320);
+  lv_obj_set_pos(s, 0, 0); lv_obj_set_size(s, SCREEN_WIDTH, SCREEN_HEIGHT);
   lv_obj_set_style_bg_color(s, lv_color_hex(0x0D0D10), 0);
   lv_obj_set_style_bg_opa(s, 248, 0);
   lv_obj_set_style_border_width(s, 0, 0);
@@ -1754,7 +1805,7 @@ static void show_moment(int win, int thr) {
   // anel de alerta (só no 100%; pisca no tick)
   if (thr == 100) {
     g_mo.ring = lv_obj_create(s);
-    lv_obj_set_pos(g_mo.ring, 4, 4); lv_obj_set_size(g_mo.ring, 472, 312);
+    lv_obj_set_pos(g_mo.ring, 3, 3); lv_obj_set_size(g_mo.ring, SCREEN_WIDTH - 6, SCREEN_HEIGHT - 6);
     lv_obj_set_style_bg_opa(g_mo.ring, 0, 0);
     lv_obj_set_style_radius(g_mo.ring, 14, 0);
     lv_obj_set_style_border_width(g_mo.ring, 4, 0);
@@ -1764,11 +1815,11 @@ static void show_moment(int win, int thr) {
   }
 
   // caixa do Clawd (a caixa inteira anima: bounce / shake / queda de entrada)
-  g_mo.boxY = 110;
+  g_mo.boxY = 74;
   lv_obj_t *bx = lv_obj_create(s);
   g_mo.box = bx;
-  lv_obj_set_pos(bx, 36, g_mo.boxY - 40);
-  lv_obj_set_size(bx, 176, 116);
+  lv_obj_set_pos(bx, 8, g_mo.boxY - 30);
+  lv_obj_set_size(bx, 128, 84);
   lv_obj_set_style_bg_opa(bx, 0, 0);
   lv_obj_set_style_border_width(bx, 0, 0);
   lv_obj_set_style_pad_all(bx, 0, 0);
@@ -1777,22 +1828,24 @@ static void show_moment(int win, int thr) {
 
   g_mo.img = lv_image_create(bx);
   lv_image_set_src(g_mo.img, &img_clawd_xl);
+  lv_image_set_pivot(g_mo.img, 0, 0);   // pivot na origem: ver build_model_mascot
+  lv_image_set_scale(g_mo.img, MO_SCALE);
   lv_obj_set_pos(g_mo.img, 0, 0);
 
   // humores (sobre os buracos dos olhos do sprite)
-  const int ex[2] = {CLAWD_XL_EYE0_X, CLAWD_XL_EYE1_X};
-  const int ey = CLAWD_XL_EYE0_Y, ew = CLAWD_XL_EYE0_W, eh = CLAWD_XL_EYE0_H;
+  const int ex[2] = {MO(CLAWD_XL_EYE0_X), MO(CLAWD_XL_EYE1_X)};
+  const int ey = MO(CLAWD_XL_EYE0_Y), ew = MO(CLAWD_XL_EYE0_W), eh = MO(CLAWD_XL_EYE0_H);
   if (thr == 50) {
     // focado: pálpebras cobrindo metade dos olhos + 1 gota de suor
     for (int i = 0; i < 2; i++)
       g_mo.lid[i] = rrect(bx, ex[i] - 1, ey - 1, ew + 2, eh / 2 + 2, 0, C_ACCENT);
-    g_mo.drop[0] = rrect(bx, 150, 6, 8, 12, 4, 0x7DD3FC);
+    g_mo.drop[0] = rrect(bx, MO(150), MO(6), MO(8), MO(12), 4, 0x7DD3FC);
   } else if (thr == 70) {
     // preocupado: olhos arregalados + 2 gotas (a caixa treme no tick)
     for (int i = 0; i < 2; i++)
       g_mo.lid[i] = rrect(bx, ex[i] - 3, ey - 4, ew + 6, eh + 8, 2, 0x0D0D10);
-    g_mo.drop[0] = rrect(bx, 150, 6, 8, 12, 4, 0x7DD3FC);
-    g_mo.drop[1] = rrect(bx, 18, 12, 8, 12, 4, 0x7DD3FC);
+    g_mo.drop[0] = rrect(bx, MO(150), MO(6), MO(8), MO(12), 4, 0x7DD3FC);
+    g_mo.drop[1] = rrect(bx, MO(18), MO(12), MO(8), MO(12), 4, 0x7DD3FC);
   } else if (thr == 100) {
     // KO: corpo acinzentado + olhos em X
     lv_obj_set_style_image_recolor(g_mo.img, lv_color_hex(0x6A6A74), 0);
@@ -1816,9 +1869,9 @@ static void show_moment(int win, int thr) {
   // coluna de texto à direita
   lv_obj_t *win_l = mklabel(s, win == 0 ? TRS("JANELA DE 5 HORAS", "5-HOUR WINDOW")
                                         : TRS("JANELA SEMANAL", "WEEKLY WINDOW"),
-                            &lv_font_montserrat_20, C_MUTED);
-  lv_obj_set_pos(win_l, 240, 42);
-  g_mo.pct = tlabel(s, &lv_font_montserrat_48, C_OK, 240, 70);
+                            &lv_font_montserrat_14, C_MUTED);
+  lv_obj_set_pos(win_l, 146, 24);
+  g_mo.pct = tlabel(s, &lv_font_montserrat_40, C_OK, 146, 44);
   const char *MSG[4] = {
     TRS("Comecando \xE2\x80\xA2 ritmo tranquilo",       "Just starting \xE2\x80\xA2 easy pace"),
     TRS("Metade da janela usada",                       "Half the window used"),
@@ -1826,22 +1879,22 @@ static void show_moment(int win, int thr) {
     TRS("Limite atingido \xE2\x80\xA2 aguarde o reset", "Limit reached \xE2\x80\xA2 wait for the reset"),
   };
   int mi = (thr == 25) ? 0 : (thr == 50) ? 1 : (thr == 70) ? 2 : 3;
-  lv_obj_t *msg = mklabel(s, MSG[mi], &lv_font_montserrat_16, C_TEXT);
-  lv_obj_set_pos(msg, 240, 148);
-  lv_obj_set_width(msg, 232);
+  lv_obj_t *msg = mklabel(s, MSG[mi], &lv_font_montserrat_12, C_TEXT);
+  lv_obj_set_pos(msg, 146, 96);
+  lv_obj_set_width(msg, 166);
   lv_label_set_long_mode(msg, LV_LABEL_LONG_WRAP);
 
   for (int i = 0; i < NSEG; i++)
-    g_mo.seg[i] = rrect(s, 240 + i * 11, 196, 8, 16, 2, C_TRACK);
+    g_mo.seg[i] = rrect(s, 146 + i * 9, 140, 7, 14, 2, C_TRACK);
 
   char e[32], b[48];
   fmt_eta(win == 0 ? g_usage.h5ResetEpoch : g_usage.d7ResetEpoch, e, sizeof(e));
   snprintf(b, sizeof(b), TRS("reseta em %s", "resets in %s"), e);
-  lv_obj_t *eta = mklabel(s, b, &lv_font_montserrat_14, C_FAINT);
-  lv_obj_set_pos(eta, 240, 228);
+  lv_obj_t *eta = mklabel(s, b, &lv_font_montserrat_12, C_FAINT);
+  lv_obj_set_pos(eta, 146, 162);
 
   lv_obj_t *hint = mklabel(s, TRS("toque para fechar", "tap to close"), &lv_font_montserrat_12, C_FAINT);
-  lv_obj_set_pos(hint, 352, 296);
+  lv_obj_set_pos(hint, 146, 210);
 }
 
 // Anima o momento (chamado a cada frame do loop enquanto o overlay existe).
@@ -1908,8 +1961,7 @@ static void refresh_ui_values() {
     model_chip(i, txt, sizeof(txt), &col);
     set_chip(g_ui.mChip[i], txt, col);
     lv_obj_update_layout(g_ui.mChip[i]);
-    static const int CENTERS[NMODELS] = {60, 180, 300, 420};
-    lv_obj_set_x(g_ui.mChip[i], CENTERS[i] - lv_obj_get_width(g_ui.mChip[i]) / 2);
+    lv_obj_set_x(g_ui.mChip[i], MODEL_CX[i] - lv_obj_get_width(g_ui.mChip[i]) / 2);
   }
   if (g_ui.incident) {
     bool any = !(g_status.haikuUp && g_status.sonnetUp && g_status.opusUp && g_status.fableUp);
@@ -1931,12 +1983,12 @@ static void refresh_ui_values() {
 static void set_hdr_status() {
   if (!g_hdrStatus) return;
   char buf[40]; uint32_t color;
-  if (g_refreshing)        { strcpy(buf, TRS("atualizando...", "updating..."));      color = C_ACCENT; }
-  else if (!g_lastFetchOk) { strcpy(buf, TRS("falha ao atualizar", "update failed")); color = C_BAD; }
+  if (g_refreshing)        { strcpy(buf, TRS("atualizando", "updating")); color = C_ACCENT; }
+  else if (!g_lastFetchOk) { strcpy(buf, TRS("falhou", "failed"));       color = C_BAD; }
   else {
     uint32_t s = (millis() - g_lastOkMs) / 1000;
-    if (s < 60) snprintf(buf, sizeof(buf), TRS("atualizado ha %us", "updated %us ago"), (unsigned)s);
-    else        snprintf(buf, sizeof(buf), TRS("atualizado ha %umin", "updated %um ago"), (unsigned)(s / 60));
+    if (s < 60) snprintf(buf, sizeof(buf), TRS("ha %us", "%us ago"), (unsigned)s);
+    else        snprintf(buf, sizeof(buf), TRS("ha %umin", "%um ago"), (unsigned)(s / 60));
     color = C_MUTED;
   }
   lv_label_set_text(g_hdrStatus, buf);
@@ -1955,13 +2007,17 @@ static void ui_main() {
   // botao de ATUALIZAR visivel no centro, engrenagem grande a direita.
   lv_obj_t *hIcon = lv_image_create(scr);
   lv_image_set_src(hIcon, &img_clawd_sm);
-  lv_obj_set_pos(hIcon, 14, 8);
+  lv_image_set_pivot(hIcon, 0, 0);
+  lv_image_set_scale(hIcon, 200);              // 42x26 -> 33x20
+  lv_obj_set_pos(hIcon, 6, 7);
   lv_obj_t *hWord = lv_image_create(scr);
   lv_image_set_src(hWord, &img_wordmark);
-  lv_obj_set_pos(hWord, 66, 8);
+  lv_image_set_pivot(hWord, 0, 0);
+  lv_image_set_scale(hWord, 180);              // 56x26 -> 39x18
+  lv_obj_set_pos(hWord, 43, 8);
 
   lv_obj_t *logoSpot = lv_obj_create(scr);     // hotspot icone+nome (so demo)
-  lv_obj_set_pos(logoSpot, 6, 2); lv_obj_set_size(logoSpot, 128, 40);
+  lv_obj_set_pos(logoSpot, 4, 2); lv_obj_set_size(logoSpot, 82, 34);
   lv_obj_set_style_bg_opa(logoSpot, 0, 0);
   lv_obj_set_style_border_width(logoSpot, 0, 0);
   lv_obj_clear_flag(logoSpot, LV_OBJ_FLAG_SCROLLABLE);
@@ -1982,40 +2038,43 @@ static void ui_main() {
   }, LV_EVENT_CLICKED, NULL);
 
   // botao de atualizar no centro do header (acao explicita; a busca e bloqueante)
-  lv_obj_t *ref = mkbtn(scr, LV_SYMBOL_REFRESH, &lv_font_montserrat_20, C_SURFACE2, C_ACCENT);
-  lv_obj_set_size(ref, 56, 40);
-  lv_obj_set_ext_click_area(ref, 10);
-  lv_obj_align(ref, LV_ALIGN_TOP_MID, 0, 2);
+  lv_obj_t *ref = mkbtn(scr, LV_SYMBOL_REFRESH, &lv_font_montserrat_18, C_SURFACE2, C_ACCENT);
+  lv_obj_set_size(ref, 44, 32);
+  lv_obj_set_ext_click_area(ref, 8);
+  lv_obj_align(ref, LV_ALIGN_TOP_MID, 0, 4);
   lv_obj_add_event_cb(ref, refresh_cb, LV_EVENT_CLICKED, NULL);
 
   g_hdrStatus = mklabel(scr, "", &lv_font_montserrat_12, C_MUTED);
-  lv_obj_align(g_hdrStatus, LV_ALIGN_TOP_RIGHT, -92, 16);
+  lv_obj_set_width(g_hdrStatus, 72);
+  lv_obj_set_style_text_align(g_hdrStatus, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_label_set_long_mode(g_hdrStatus, LV_LABEL_LONG_DOT);
+  lv_obj_align(g_hdrStatus, LV_ALIGN_TOP_RIGHT, -56, 12);
 
-  // Badge da conta ativa. A faixa livre do cabecalho e estreita: o hotspot do
-  // logo termina em x=134 e o botao de atualizar (56 px centrado, mais 10 px de
-  // ext_click_area) passa a capturar toque em x=202. Ficar em 138..194 deixa
-  // 8 px de folga do lado direito — encostar em 202 faria o toque "no badge"
-  // disparar o refresh. LONG_DOT corta o rotulo que nao couber.
+  // Badge da conta ativa. A faixa livre do cabecalho e estreita, e em 320 px
+  // ficou ainda mais: o hotspot do logo termina em x=86 e o botao de atualizar
+  // (44 px centrado, mais 8 px de ext_click_area) passa a capturar toque em
+  // x=130. Ficar em 88..126 deixa 4 px de folga — encostar em 130 faria o
+  // toque "no badge" disparar o refresh. LONG_DOT corta o que nao couber.
   if (accountCount(g_accts) > 1) {
     char ab[ACCT_LBL_MAX + 1];
     snprintf(ab, sizeof(ab), "@%s", g_accts.label[g_accts.active]);
     lv_obj_t *acct = mklabel(scr, ab, &lv_font_montserrat_12, C_ACCENT);
-    lv_obj_set_width(acct, 56);
+    lv_obj_set_width(acct, 38);
     lv_label_set_long_mode(acct, LV_LABEL_LONG_DOT);
-    lv_obj_align(acct, LV_ALIGN_TOP_LEFT, 138, 16);
+    lv_obj_align(acct, LV_ALIGN_TOP_LEFT, 88, 12);
   }
 
-  lv_obj_t *gear = mkbtn(scr, LV_SYMBOL_SETTINGS, &lv_font_montserrat_22, C_SURFACE2, C_TEXT);
-  lv_obj_set_size(gear, 78, 40);
-  lv_obj_set_ext_click_area(gear, 16);
-  lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -6, 2);
+  lv_obj_t *gear = mkbtn(scr, LV_SYMBOL_SETTINGS, &lv_font_montserrat_20, C_SURFACE2, C_TEXT);
+  lv_obj_set_size(gear, 48, 32);
+  lv_obj_set_ext_click_area(gear, 12);
+  lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -4, 4);
   lv_obj_add_event_cb(gear, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_SETTINGS);
 
   // Barra fina decrescente do próximo refresh (só indicador; o botão de
   // atualizar fica no centro do header — clique aqui causava refresh acidental)
   g_ui.refBar = lv_bar_create(scr);
-  lv_obj_set_size(g_ui.refBar, 480, 3);
-  lv_obj_set_pos(g_ui.refBar, 0, 40);
+  lv_obj_set_size(g_ui.refBar, 320, 3);
+  lv_obj_set_pos(g_ui.refBar, 0, 38);
   lv_bar_set_range(g_ui.refBar, 0, 1000);
   lv_bar_set_value(g_ui.refBar, 1000, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(g_ui.refBar, lv_color_hex(C_SURFACE), LV_PART_MAIN);
@@ -2026,8 +2085,8 @@ static void ui_main() {
 
   // Telas (swipe horizontal)
   g_ui.tv = lv_tileview_create(scr);
-  lv_obj_set_pos(g_ui.tv, 0, 46);
-  lv_obj_set_size(g_ui.tv, 480, 250);
+  lv_obj_set_pos(g_ui.tv, 0, 44);
+  lv_obj_set_size(g_ui.tv, 320, 176);
   lv_obj_set_style_bg_opa(g_ui.tv, 0, 0);
   lv_obj_set_style_border_width(g_ui.tv, 0, 0);
   lv_obj_set_scrollbar_mode(g_ui.tv, LV_SCROLLBAR_MODE_OFF);
@@ -2049,11 +2108,13 @@ static void ui_main() {
     lv_obj_set_style_bg_color(g_ui.dots[i], lv_color_hex(C_BORDER), 0);
     lv_obj_set_style_border_width(g_ui.dots[i], 0, 0);
     lv_obj_clear_flag(g_ui.dots[i], LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(g_ui.dots[i], LV_ALIGN_BOTTOM_MID, (int)((i - (NTILES - 1) / 2.0f) * 18), -4);
+    lv_obj_align(g_ui.dots[i], LV_ALIGN_BOTTOM_MID, (int)((i - (NTILES - 1) / 2.0f) * 14), -4);
   }
 
   refresh_ui_values();
   on_tile_changed(NULL);
+  Serial.printf("[MEM] dashboard montado: livre=%u  maior bloco=%u\n",
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 }
 
 // ============================================================
@@ -2154,11 +2215,11 @@ static void settings_action_cb(lv_event_t *e) {
 }
 static void add_setting_row(lv_obj_t *p, const char *txt, int act, uint32_t fg, lv_obj_t **out) {
   lv_obj_t *b = lv_button_create(p);
-  lv_obj_set_size(b, 444, 44);
+  lv_obj_set_size(b, 296, 44);   // 44 px de altura: alvo de toque confortavel
   lv_obj_set_style_bg_color(b, lv_color_hex(C_SURFACE), 0);
   lv_obj_set_style_radius(b, 12, 0);
   lv_obj_set_style_shadow_width(b, 0, 0);
-  lv_obj_t *l = mklabel(b, txt, &lv_font_montserrat_16, fg);
+  lv_obj_t *l = mklabel(b, txt, &lv_font_montserrat_14, fg);
   lv_obj_align(l, LV_ALIGN_LEFT_MID, 8, 0);
   lv_obj_add_event_cb(b, settings_action_cb, LV_EVENT_CLICKED, (void *)(intptr_t)act);
   if (out) *out = l;
@@ -2167,20 +2228,20 @@ static void ui_settings() {
   lv_obj_t *scr = lv_screen_active();
   g_wipeArmed = false;
   start_data_web();
-  lv_obj_t *title = mklabel(scr, TRS("Ajustes", "Settings"), &lv_font_montserrat_20, C_TEXT);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 10);
+  lv_obj_t *title = mklabel(scr, TRS("Ajustes", "Settings"), &lv_font_montserrat_16, C_TEXT);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
 
   lv_obj_t *bk = mkbtn(scr, TRS(LV_SYMBOL_LEFT " Voltar", LV_SYMBOL_LEFT " Back"),
-                       &lv_font_montserrat_14, C_SURFACE2, C_MUTED);
-  lv_obj_set_size(bk, 100, 32);
+                       &lv_font_montserrat_12, C_SURFACE2, C_MUTED);
+  lv_obj_set_size(bk, 84, 30);
   lv_obj_set_ext_click_area(bk, 6);
-  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -12, 6);
+  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -6, 4);
   lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)(g_usage.ok ? ST_MAIN : ST_SETTINGS));
 
   // lista rolável
   lv_obj_t *lst = lv_obj_create(scr);
-  lv_obj_set_pos(lst, 8, 44);
-  lv_obj_set_size(lst, 464, 268);
+  lv_obj_set_pos(lst, 8, 38);
+  lv_obj_set_size(lst, 304, 178);         // termina em y=216: ver TOUCH_DEAD_Y
   lv_obj_set_style_bg_opa(lst, 0, 0);
   lv_obj_set_style_border_width(lst, 0, 0);
   lv_obj_set_style_pad_all(lst, 0, 0);
@@ -2297,14 +2358,14 @@ static void ui_account_name() {
   lv_obj_t *scr = lv_screen_active();
 
   lv_obj_t *title = mklabel(scr, TRS("Renomear conta", "Rename account"),
-                            &lv_font_montserrat_20, C_TEXT);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 10);
+                            &lv_font_montserrat_16, C_TEXT);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
 
   lv_obj_t *bk = mkbtn(scr, TRS(LV_SYMBOL_LEFT " Voltar", LV_SYMBOL_LEFT " Back"),
-                       &lv_font_montserrat_14, C_SURFACE2, C_MUTED);
-  lv_obj_set_size(bk, 100, 32);
+                       &lv_font_montserrat_12, C_SURFACE2, C_MUTED);
+  lv_obj_set_size(bk, 84, 30);
   lv_obj_set_ext_click_area(bk, 6);
-  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -12, 6);
+  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -6, 4);
   lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_ACCOUNTS);
 
   g_nameTa = lv_textarea_create(scr);
@@ -2313,10 +2374,14 @@ static void ui_account_name() {
   lv_textarea_set_text(g_nameTa, g_accts.label[g_renameSlot]);
   lv_textarea_set_placeholder_text(g_nameTa, TRS("rotulo (ex.: Pessoal, Trabalho)",
                                                  "label (e.g. Personal, Work)"));
-  lv_obj_set_size(g_nameTa, 452, 44);
-  lv_obj_align(g_nameTa, LV_ALIGN_TOP_MID, 0, 52);
+  lv_obj_set_size(g_nameTa, 304, 38);
+  lv_obj_align(g_nameTa, LV_ALIGN_TOP_MID, 0, 40);
 
   lv_obj_t *kb = lv_keyboard_create(scr);
+  // Mesmo recuo do teclado do WiFi: a tecla de confirmar nao pode cair na
+  // zona morta do painel (ver TOUCH_DEAD_Y).
+  lv_obj_set_size(kb, SCREEN_WIDTH, 130);
+  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -(SCREEN_HEIGHT - TOUCH_SAFE_BOTTOM));
   lv_keyboard_set_textarea(kb, g_nameTa);
   lv_obj_add_event_cb(kb, acct_name_kb_cb, LV_EVENT_ALL, NULL);
 }
@@ -2325,19 +2390,19 @@ static void ui_accounts() {
   lv_obj_t *scr = lv_screen_active();
   start_data_web();
 
-  lv_obj_t *title = mklabel(scr, TRS("Contas", "Accounts"), &lv_font_montserrat_20, C_TEXT);
-  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 14, 10);
+  lv_obj_t *title = mklabel(scr, TRS("Contas", "Accounts"), &lv_font_montserrat_16, C_TEXT);
+  lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
 
   lv_obj_t *bk = mkbtn(scr, TRS(LV_SYMBOL_LEFT " Voltar", LV_SYMBOL_LEFT " Back"),
-                       &lv_font_montserrat_14, C_SURFACE2, C_MUTED);
-  lv_obj_set_size(bk, 100, 32);
+                       &lv_font_montserrat_12, C_SURFACE2, C_MUTED);
+  lv_obj_set_size(bk, 84, 30);
   lv_obj_set_ext_click_area(bk, 6);
-  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -12, 6);
+  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -6, 4);
   lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_SETTINGS);
 
   lv_obj_t *lst = lv_obj_create(scr);
-  lv_obj_set_pos(lst, 8, 44);
-  lv_obj_set_size(lst, 464, 240);
+  lv_obj_set_pos(lst, 8, 38);
+  lv_obj_set_size(lst, 304, 168);
   lv_obj_set_style_bg_opa(lst, 0, 0);
   lv_obj_set_style_border_width(lst, 0, 0);
   lv_obj_set_style_pad_all(lst, 0, 0);
@@ -2352,11 +2417,11 @@ static void ui_accounts() {
     bool active = (i == g_accts.active);
 
     lv_obj_t *row = lv_obj_create(lst);
-    lv_obj_set_size(row, 444, 44);
+    lv_obj_set_size(row, 296, 44);
     no_box(row);
 
     lv_obj_t *b = lv_button_create(row);
-    lv_obj_set_size(b, canDelete ? 324 : 384, 44);
+    lv_obj_set_size(b, canDelete ? 188 : 240, 44);
     lv_obj_set_pos(b, 0, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(C_SURFACE), 0);
     lv_obj_set_style_radius(b, 12, 0);
@@ -2364,42 +2429,42 @@ static void ui_accounts() {
     char txt[40];
     snprintf(txt, sizeof(txt), "%s%s", g_accts.label[i],
              active ? TRS("  \xE2\x80\xA2  ativa", "  \xE2\x80\xA2  active") : "");
-    lv_obj_t *l = mklabel(b, txt, &lv_font_montserrat_16, active ? C_ACCENT : C_TEXT);
+    lv_obj_t *l = mklabel(b, txt, &lv_font_montserrat_14, active ? C_ACCENT : C_TEXT);
     lv_obj_align(l, LV_ALIGN_LEFT_MID, 8, 0);
     lv_obj_add_event_cb(b, acct_switch_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
     lv_obj_t *ed = lv_button_create(row);
-    lv_obj_set_size(ed, 52, 44);
-    lv_obj_set_pos(ed, canDelete ? 332 : 392, 0);
+    lv_obj_set_size(ed, 48, 44);
+    lv_obj_set_pos(ed, canDelete ? 196 : 248, 0);
     lv_obj_set_style_bg_color(ed, lv_color_hex(C_SURFACE2), 0);
     lv_obj_set_style_radius(ed, 12, 0);
     lv_obj_set_style_shadow_width(ed, 0, 0);
-    lv_obj_center(mklabel(ed, LV_SYMBOL_EDIT, &lv_font_montserrat_16, C_MUTED));
+    lv_obj_center(mklabel(ed, LV_SYMBOL_EDIT, &lv_font_montserrat_14, C_MUTED));
     lv_obj_add_event_cb(ed, acct_edit_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
     if (canDelete) {
       bool armed = (g_acctDelArmed == i);
       lv_obj_t *d = lv_button_create(row);
-      lv_obj_set_size(d, 52, 44);
-      lv_obj_set_pos(d, 392, 0);
+      lv_obj_set_size(d, 48, 44);
+      lv_obj_set_pos(d, 248, 0);
       lv_obj_set_style_bg_color(d, lv_color_hex(armed ? C_BAD : C_SURFACE2), 0);
       lv_obj_set_style_radius(d, 12, 0);
       lv_obj_set_style_shadow_width(d, 0, 0);
       lv_obj_center(mklabel(d, armed ? LV_SYMBOL_WARNING : LV_SYMBOL_TRASH,
-                            &lv_font_montserrat_16, armed ? C_BG : C_MUTED));
+                            &lv_font_montserrat_14, armed ? C_BG : C_MUTED));
       lv_obj_add_event_cb(d, acct_del_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
   }
 
   if (accountFirstFree(g_accts) >= 0) {
     lv_obj_t *add = lv_button_create(lst);
-    lv_obj_set_size(add, 444, 44);
+    lv_obj_set_size(add, 296, 44);
     lv_obj_set_style_bg_color(add, lv_color_hex(C_SURFACE2), 0);
     lv_obj_set_style_radius(add, 12, 0);
     lv_obj_set_style_shadow_width(add, 0, 0);
     lv_obj_t *al = mklabel(add, TRS(LV_SYMBOL_PLUS "  Adicionar conta",
                                     LV_SYMBOL_PLUS "  Add account"),
-                           &lv_font_montserrat_16, C_ACCENT);
+                           &lv_font_montserrat_14, C_ACCENT);
     lv_obj_align(al, LV_ALIGN_LEFT_MID, 8, 0);
     lv_obj_add_event_cb(add, acct_add_cb, LV_EVENT_CLICKED, NULL);
   }
@@ -2407,9 +2472,9 @@ static void ui_accounts() {
   lv_obj_t *hint = mklabel(scr, TRS("So a conta ativa e consultada na API (as outras ficam dormentes).",
                                     "Only the active account is polled (the others stay dormant)."),
                            &lv_font_montserrat_12, C_FAINT);
-  lv_obj_set_width(hint, 452);
+  lv_obj_set_width(hint, 300);
   lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-  lv_obj_align(hint, LV_ALIGN_BOTTOM_LEFT, 14, -8);
+  lv_obj_align(hint, LV_ALIGN_BOTTOM_LEFT, 10, -4);
 }
 
 // ============================================================
@@ -2420,44 +2485,47 @@ static void ui_about() {
   start_data_web();
 
   lv_obj_t *bk = mkbtn(scr, TRS(LV_SYMBOL_LEFT " Voltar", LV_SYMBOL_LEFT " Back"),
-                       &lv_font_montserrat_14, C_SURFACE2, C_MUTED);
-  lv_obj_set_size(bk, 100, 32);
+                       &lv_font_montserrat_12, C_SURFACE2, C_MUTED);
+  lv_obj_set_size(bk, 84, 30);
   lv_obj_set_ext_click_area(bk, 6);
-  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -12, 6);
+  lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -6, 4);
   lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_SETTINGS);
 
   lv_obj_t *mark = build_claude_mark(scr);
   lv_obj_align(mark, LV_ALIGN_TOP_MID, 0, 0);
 
-  lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_22, C_TEXT);
-  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 94);
+  lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_18, C_TEXT);
+  lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 92);
 
   char v[64];
-  snprintf(v, sizeof(v), "v" FW_VERSION " \xE2\x80\xA2 ESP32-S3 \xE2\x80\xA2 LVGL 9.2");
+  snprintf(v, sizeof(v), "v" FW_VERSION " \xE2\x80\xA2 ESP32 \xE2\x80\xA2 LVGL 9.2");
   lv_obj_t *ver = mklabel(scr, v, &lv_font_montserrat_12, C_FAINT);
-  lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, 122);
+  lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, 114);
 
   lv_obj_t *d = mklabel(scr, TRS("Medidor de uso do Claude Code em tempo real: "
                                  "janelas de 5h e semanal direto da API da Anthropic.",
                                  "Real-time Claude Code usage meter: "
                                  "5-hour and weekly windows straight from the Anthropic API."),
-                        &lv_font_montserrat_14, C_MUTED);
-  lv_obj_set_width(d, 420);
+                        &lv_font_montserrat_12, C_MUTED);
+  lv_obj_set_width(d, 300);
   lv_obj_set_style_text_align(d, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(d, LV_LABEL_LONG_WRAP);
-  lv_obj_align(d, LV_ALIGN_TOP_MID, 0, 146);
+  lv_obj_align(d, LV_ALIGN_TOP_MID, 0, 132);
 
-  lv_obj_t *h = mklabel(scr, TRS("Tela: Guition JC4832W535 \xE2\x80\xA2 IPS 3.5\" 480x320 touch (AXS15231B)",
-                                 "Display: Guition JC4832W535 \xE2\x80\xA2 3.5\" IPS 480x320 touch (AXS15231B)"),
+  lv_obj_t *h = mklabel(scr, TRS("Tela: CYD ESP32-2432S028 \xE2\x80\xA2 2.8\" 320x240 touch (ST7789/XPT2046)",
+                                 "Display: CYD ESP32-2432S028 \xE2\x80\xA2 2.8\" 320x240 touch (ST7789/XPT2046)"),
                         &lv_font_montserrat_12, C_FAINT);
-  lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 200);
+  lv_obj_set_width(h, 300);
+  lv_obj_set_style_text_align(h, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
+  lv_obj_align(h, LV_ALIGN_TOP_MID, 0, 168);
 
   lv_obj_t *devCap = mklabel(scr, TRS("Desenvolvido por", "Developed by"), &lv_font_montserrat_12, C_FAINT);
-  lv_obj_align(devCap, LV_ALIGN_TOP_MID, 0, 234);
-  lv_obj_t *dev = mklabel(scr, "Benevid Felix", &lv_font_montserrat_18, C_TEXT);
-  lv_obj_align(dev, LV_ALIGN_TOP_MID, 0, 254);
-  lv_obj_t *mail = mklabel(scr, "benevid@gmail.com", &lv_font_montserrat_14, C_ACCENT);
-  lv_obj_align(mail, LV_ALIGN_TOP_MID, 0, 282);
+  lv_obj_align(devCap, LV_ALIGN_TOP_MID, 0, 196);
+  lv_obj_t *dev = mklabel(scr, "Benevid Felix", &lv_font_montserrat_14, C_TEXT);
+  lv_obj_align(dev, LV_ALIGN_TOP_MID, 0, 212);
+  lv_obj_t *mail = mklabel(scr, "benevid@gmail.com", &lv_font_montserrat_12, C_ACCENT);
+  lv_obj_align(mail, LV_ALIGN_TOP_MID, 0, 228);
 }
 
 // ============================================================
@@ -2547,6 +2615,8 @@ static void bg_refresh() {
   if (!g_wifi.isConnected()) g_wifi.autoConnect(WIFI_CONNECT_TIMEOUT_MS);
   ensure_time();
   g_refreshing = true; set_hdr_status(); lv_refr_now(NULL);
+  Serial.printf("[MEM] antes do fetch: livre=%u  maior bloco=%u\n",
+                (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
   UsageData u = {};
   bool ok = fetchUsage(g_token, u);
   bool rebuild = false;
@@ -2591,12 +2661,22 @@ void setup() {
   // Dois buffers parciais na RAM interna. O original alocava a tela inteira em
   // PSRAM e usava RENDER_MODE_FULL; aqui nao ha PSRAM, e o maior bloco
   // contiguo da placa (~110 KB) nem comportaria o framebuffer de 153 KB.
-  uint32_t bufSize = SCREEN_WIDTH * LVGL_BUF_LINES * sizeof(lv_color_t);
+  //
+  // O tamanho vem de LVGL_BYTES_PER_PX, nao de sizeof(lv_color_t): na LVGL 9
+  // lv_color_t e uma struct RGB888 de 3 bytes, mas o formato de render deste
+  // display e RGB565, de 2. Usar o sizeof reservava 50% a mais de RAM do que o
+  // LVGL chega a usar — desperdicio que numa placa sem PSRAM custa caro, e que
+  // aqui era a diferenca entre o TLS conectar ou nao.
+  uint32_t bufSize = SCREEN_WIDTH * LVGL_BUF_LINES * LVGL_BYTES_PER_PX;
+  // Buffer UNICO, nao duplo: a verificacao da cadeia TLS da Anthropic
+  // (ECDSA P-384 + SHA-384) precisa de blocos grandes, e o segundo buffer
+  // custava 20 KB que fazem falta exatamente no momento do handshake.
   lv_color_t *buf1 = (lv_color_t *)heap_caps_malloc(bufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  lv_color_t *buf2 = (lv_color_t *)heap_caps_malloc(bufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!buf1 || !buf2) { Serial.println("FATAL buffers LVGL"); fatal_screen("RAM insuficiente"); }
-  Serial.printf("[MEM] buffers LVGL: 2 x %u B  heap livre depois: %u B\n",
-                (unsigned)bufSize, (unsigned)ESP.getFreeHeap());
+  lv_color_t *buf2 = nullptr;
+  if (!buf1) { Serial.println("FATAL buffers LVGL"); fatal_screen("RAM insuficiente"); }
+  Serial.printf("[MEM] buffer LVGL: 1 x %u B  heap livre=%u  maior bloco=%u\n",
+                (unsigned)bufSize, (unsigned)ESP.getFreeHeap(),
+                (unsigned)ESP.getMaxAllocHeap());
   lv_display_t *disp = lv_display_create(SCREEN_WIDTH, SCREEN_HEIGHT);
   lv_display_set_flush_cb(disp, disp_flush_cb);
   lv_display_set_buffers(disp, buf1, buf2, bufSize, LV_DISPLAY_RENDER_MODE_PARTIAL);

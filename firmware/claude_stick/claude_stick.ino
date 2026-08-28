@@ -33,20 +33,23 @@
 #include "accounts.h"
 #include "logo_assets.h"   // Clawd + logotipo oficiais (gerado por tools/gen_logo_assets.py)
 
-// ---- Paleta (escuro, minimalista; acento coral do Claude) ----
-#define C_BG       0x0F0F12
-#define C_SURFACE  0x1A1A20   // cards sem borda
-#define C_SURFACE2 0x24242C   // teclas / botoes secundarios
-#define C_TRACK    0x26262E   // trilho de barras
-#define C_GRID     0x232329   // linhas de grade dentro de cards
-#define C_BORDER   0x30303A   // hairlines raras
-#define C_TEXT     0xF2F0EC
-#define C_MUTED    0x8C8C98
-#define C_FAINT    0x5C5C68
-#define C_ACCENT   0xD97757   // coral Claude
-#define C_OK       0x4ADE80
-#define C_WARN     0xFBBF24
-#define C_BAD      0xF87171
+// ---- Paleta ----
+// Contraste medido contra o fundo do card (C_SURFACE), nao contra o fundo da
+// tela: e sobre o card que quase todo o texto vive. Nenhum tom de texto fica
+// a menos de ~4:1 do card.
+#define C_BG       0x14141C   // fundo da tela
+#define C_SURFACE  0x22222C   // cards
+#define C_SURFACE2 0x2E2E3A   // teclas / botoes secundarios
+#define C_TRACK    0x33333F   // trilho de barras
+#define C_GRID     0x2A2A34   // linhas de grade dentro de cards
+#define C_BORDER   0x3C3C4A   // hairlines raras
+#define C_TEXT     0xFFFCF8   // texto principal
+#define C_MUTED    0xB4B4C2   // texto secundario (era 0x8C8C98)
+#define C_FAINT    0x9494A4   // terciario; antes 0x5C5C68, que sumia no card
+#define C_ACCENT   0xE8865F   // coral Claude, um grau mais claro
+#define C_OK       0x5CF08E
+#define C_WARN     0xFFC93C
+#define C_BAD      0xFF8A8A
 
 // ---- Idioma (0 = portugues, 1 = english; Ajustes -> NVS "lang") ----
 static uint8_t g_lang = 0;

@@ -32,7 +32,11 @@
    Pool interno do LVGL (objetos/estilos). O buffer de render full-screen
    (480x320x2) é alocado à parte na PSRAM, dentro do sketch.
  *=========================*/
-#define LV_USE_STDLIB_MALLOC   LV_STDLIB_BUILTIN
+// LV_STDLIB_CLIB em vez de BUILTIN: o alocador proprio do LVGL reserva um
+// pool ESTATICO de LV_MEM_SIZE em DRAM, e nesta placa isso estourava o
+// dram0_0_seg em 47 KB no link. Com CLIB o LVGL pega do heap do ESP32
+// (~320 KB medidos), so o que precisar, e LV_MEM_SIZE deixa de valer.
+#define LV_USE_STDLIB_MALLOC   LV_STDLIB_CLIB
 #define LV_USE_STDLIB_STRING   LV_STDLIB_BUILTIN
 #define LV_USE_STDLIB_SPRINTF  LV_STDLIB_BUILTIN
 #define LV_MEM_SIZE            (96 * 1024U)

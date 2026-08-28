@@ -11,6 +11,7 @@ Os logs brutos de cada medição estão em [`logs/`](logs/):
 | [`01-deteccao-chip-i2c-painel.log`](logs/01-deteccao-chip-i2c-painel.log) | chip, memória, varredura I²C, leitura crua do ID do painel |
 | [`02-deteccao-madctl-roundtrip.log`](logs/02-deteccao-madctl-roundtrip.log) | round-trip de MADCTL — a prova de que o MISO está ligado |
 | [`03-calibracao-touch-xpt2046.log`](logs/03-calibracao-touch-xpt2046.log) | os quatro pontos de calibração e as constantes resultantes |
+| [`04-mapa-zona-morta-touch.log`](logs/04-mapa-zona-morta-touch.log) | varredura célula a célula da área que o painel não enxerga |
 
 Os sketches que produziram esses logs estão em
 [`../firmware/detect/`](../firmware/detect/) e
@@ -208,9 +209,34 @@ enquanto o cru **Y** varia 3191. Ou seja: os eixos estão **trocados**, e ambos
 
 Verificado arrastando o dedo sobre uma grade: o ponto acompanha o dedo.
 
-> ⚠️ **O canto inferior direito responde mal ao toque.** Confirmado na placa.
-> É uma limitação física do painel resistivo, não do mapeamento. O layout
-> portado não deve colocar alvo de toque crítico nesse canto.
+### Zona morta — medida, não estimada
+
+O canto inferior direito não responde. "Não responde bem" não é um número, e o
+layout precisava de um: o botão de confirmar do teclado LVGL cai exatamente ali,
+e sem ele não há como enviar a senha do Wi-Fi.
+
+[`firmware/touchmap`](../firmware/touchmap/) transforma a tela numa grade de
+células de 20 px e acende cada uma que responde. Passando o dedo pela tela
+inteira, o que sobra apagado é a zona morta. Resultado nesta placa —
+**5 células de 192**, todas na última linha:
+
+```
+     col:  0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15
+lin  0..10                     (todas as 16 colunas responderam)
+lin 11 (y=220..239)   #    #    #    #    #    #    #    #    #    .    #    #    .    .    .    .
+maior x com resposta: 320 de 320   (margem morta a direita: 0 px)
+maior y com resposta: 240 de 240   (margem morta embaixo:  0 px)
+```
+
+Lendo isso: a área cega é a **faixa `y ≥ 220` a partir de `x ≥ 240`** — um bloco
+de 80×20 px no canto — mais uma célula isolada em `x = 180..199` na mesma linha.
+As bordas direita e inferior respondem normalmente fora desse canto: não há
+margem morta ao longo delas.
+
+> Consequência no firmware: `TOUCH_SAFE_BOTTOM = 216`. Os dois teclados (senha
+> do Wi-Fi e renomear conta), o teclado numérico do PIN e as listas roláveis
+> terminam nessa linha. Não é escolha estética — é o que torna a tecla de
+> confirmar alcançável.
 
 ---
 
@@ -233,6 +259,7 @@ Verificado arrastando o dedo sobre uma grade: o ponto acompanha o dedo.
 | PSRAM | 8 MB OPI | **nenhuma** | Buffers parciais em vez de framebuffer cheio |
 | Display | AXS15231B QSPI 480×320 | **ST7789 SPI 320×240** | Outro driver, outro barramento, 58 % dos pixels |
 | Touch | AXS15231B capacitivo I²C | **XPT2046 resistivo SPI** | Outro driver + calibração medida |
+| Área útil de toque | a tela inteira | tudo menos 80×20 px num canto | Teclados e listas param em `y = 216` |
 | Render | `RENDER_MODE_FULL` + `Arduino_Canvas` | `RENDER_MODE_PARTIAL` direto no driver | `disp_flush_cb` reescrito |
 | Orientação | USB à esquerda (giro manual 270° no flush) | USB à esquerda (`rotation = 3` no driver) | O giro sai do flush e vai para o driver |
 | Layout | coordenadas absolutas em 480×320 | 320×240 | Todos os tiles e telas reposicionados |

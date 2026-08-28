@@ -133,7 +133,7 @@ static int g_tzOffset = -3;               // fuso GMT (horas), config NVS
 
 // ---- Ponteiros de UI do dashboard (zerados a cada build de ST_MAIN) ----
 struct DashUI {
-  lv_obj_t *refBar;
+  lv_obj_t *refArc;
   lv_obj_t *agChip, *agPct5, *agCd5, *agAt5;
   lv_obj_t *agPct7, *agCd7, *agAt7, *agTok;
   lv_obj_t *bar5, *bar7;
@@ -1385,20 +1385,23 @@ static void refresh_ui_values() {
   dash_tick();
 }
 
-// Atualiza o texto de status do cabeçalho (sem trocar de tela)
+// Estado do cabecalho. Quando esta tudo bem, nao ha texto nenhum: o anel ja
+// diz que a proxima busca esta vindo, e um relogio contando "ha 2s, ha 3s" so
+// chama atencao para uma informacao que ninguem usa. Texto so quando algo
+// exige acao.
 static void set_hdr_status() {
   if (!g_hdrStatus) return;
-  char buf[40]; uint32_t color;
-  if (g_refreshing)        { strcpy(buf, TRS("atualizando", "updating")); color = C_ACCENT; }
-  else if (!g_lastFetchOk) { strcpy(buf, TRS("falhou", "failed"));       color = C_BAD; }
-  else {
-    uint32_t s = (millis() - g_lastOkMs) / 1000;
-    if (s < 60) snprintf(buf, sizeof(buf), TRS("ha %us", "%us ago"), (unsigned)s);
-    else        snprintf(buf, sizeof(buf), TRS("ha %umin", "%um ago"), (unsigned)(s / 60));
-    color = C_MUTED;
-  }
-  lv_label_set_text(g_hdrStatus, buf);
+  const char *txt = "";
+  uint32_t color = C_MUTED;
+  if (g_refreshing)        { txt = TRS("buscando", "fetching"); color = C_ACCENT; }
+  else if (!g_lastFetchOk) { txt = TRS("sem conexao", "offline"); color = C_BAD; }
+  lv_label_set_text(g_hdrStatus, txt);
   lv_obj_set_style_text_color(g_hdrStatus, lv_color_hex(color), 0);
+
+  if (g_ui.refArc) {
+    uint32_t ac = g_refreshing ? C_ACCENT : (g_lastFetchOk ? C_ACCENT : C_BAD);
+    lv_obj_set_style_arc_color(g_ui.refArc, lv_color_hex(ac), LV_PART_INDICATOR);
+  }
 }
 // Botão de refresh: só pede; a busca acontece em background no loop()
 static void refresh_cb(lv_event_t *e) { (void)e; g_wantRefresh = true; }
@@ -1443,15 +1446,29 @@ static void ui_main() {
     }
   }, LV_EVENT_CLICKED, NULL);
 
-  // botao de atualizar no centro do header (acao explicita; a busca e bloqueante)
-  lv_obj_t *ref = mkbtn(scr, LV_SYMBOL_REFRESH, &lv_font_montserrat_18, C_SURFACE2, C_ACCENT);
-  lv_obj_set_size(ref, 44, 32);
-  lv_obj_set_ext_click_area(ref, 8);
-  lv_obj_align(ref, LV_ALIGN_TOP_MID, 0, 4);
-  lv_obj_add_event_cb(ref, refresh_cb, LV_EVENT_CLICKED, NULL);
+  // Anel do proximo refresh. Substitui a barra de 320x3 que descia no topo da
+  // tela: mesma informacao, num canto, sem uma regua atravessando o campo de
+  // visao. E ele mesmo e o botao de atualizar agora - o alvo e deliberado
+  // (26 px mais 14 de area estendida), diferente da barra, que ficou sem
+  // clique justamente por disparar refresh sem querer.
+  g_ui.refArc = lv_arc_create(scr);
+  lv_obj_set_size(g_ui.refArc, 26, 26);
+  lv_obj_align(g_ui.refArc, LV_ALIGN_TOP_MID, 0, 8);
+  lv_arc_set_rotation(g_ui.refArc, 270);
+  lv_arc_set_bg_angles(g_ui.refArc, 0, 360);
+  lv_arc_set_range(g_ui.refArc, 0, 1000);
+  lv_arc_set_value(g_ui.refArc, 1000);
+  lv_obj_remove_style(g_ui.refArc, NULL, LV_PART_KNOB);      // sem alca de arrastar
+  lv_obj_clear_flag(g_ui.refArc, LV_OBJ_FLAG_CLICK_FOCUSABLE);
+  lv_obj_set_style_arc_width(g_ui.refArc, 3, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(g_ui.refArc, 3, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(g_ui.refArc, lv_color_hex(C_TRACK), LV_PART_MAIN);
+  lv_obj_set_style_arc_color(g_ui.refArc, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
+  lv_obj_set_ext_click_area(g_ui.refArc, 14);
+  lv_obj_add_event_cb(g_ui.refArc, refresh_cb, LV_EVENT_CLICKED, NULL);
 
   g_hdrStatus = mklabel(scr, "", &lv_font_montserrat_12, C_MUTED);
-  lv_obj_set_width(g_hdrStatus, 72);
+  lv_obj_set_width(g_hdrStatus, 76);
   lv_obj_set_style_text_align(g_hdrStatus, LV_TEXT_ALIGN_RIGHT, 0);
   lv_label_set_long_mode(g_hdrStatus, LV_LABEL_LONG_DOT);
   lv_obj_align(g_hdrStatus, LV_ALIGN_TOP_RIGHT, -56, 12);
@@ -1475,19 +1492,6 @@ static void ui_main() {
   lv_obj_set_ext_click_area(gear, 12);
   lv_obj_align(gear, LV_ALIGN_TOP_RIGHT, -4, 4);
   lv_obj_add_event_cb(gear, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_SETTINGS);
-
-  // Barra fina decrescente do próximo refresh (só indicador; o botão de
-  // atualizar fica no centro do header — clique aqui causava refresh acidental)
-  g_ui.refBar = lv_bar_create(scr);
-  lv_obj_set_size(g_ui.refBar, 320, 3);
-  lv_obj_set_pos(g_ui.refBar, 0, 38);
-  lv_bar_set_range(g_ui.refBar, 0, 1000);
-  lv_bar_set_value(g_ui.refBar, 1000, LV_ANIM_OFF);
-  lv_obj_set_style_bg_color(g_ui.refBar, lv_color_hex(C_SURFACE), LV_PART_MAIN);
-  lv_obj_set_style_bg_color(g_ui.refBar, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
-  lv_obj_set_style_radius(g_ui.refBar, 0, LV_PART_MAIN);
-  lv_obj_set_style_radius(g_ui.refBar, 0, LV_PART_INDICATOR);
-  lv_obj_clear_flag(g_ui.refBar, LV_OBJ_FLAG_CLICKABLE);
 
   build_dashboard(scr);
 
@@ -2080,12 +2084,12 @@ void loop() {
     bg_refresh();           // seta g_lastPollMs no fim
   }
 
-  // Atualização viva: contadores de reset (1s) e barra do próximo refresh (250ms)
+  // Atualização viva: contadores de reset (1s) e anel do próximo refresh (250ms)
   if (g_state == ST_MAIN) {
     uint32_t now = millis();
     static uint32_t lastTick = 0, lastBar = 0;
     if (now - lastTick > 1000) { lastTick = now; dash_tick(); update_tok_row(); }
-    if (now - lastBar > 250 && g_ui.refBar) {
+    if (now - lastBar > 250 && g_ui.refArc) {
       lastBar = now;
       int v;
       if (g_refreshing) v = 1000;
@@ -2093,7 +2097,7 @@ void loop() {
         uint32_t el = now - g_lastPollMs, per = (uint32_t)g_pollSec * 1000;
         v = el >= per ? 0 : (int)(1000 - (uint64_t)el * 1000 / per);
       }
-      lv_bar_set_value(g_ui.refBar, v, LV_ANIM_OFF);
+      lv_arc_set_value(g_ui.refArc, v);
     }
 
     // Momentos de limiar: mostra pendente e anima o overlay ativo

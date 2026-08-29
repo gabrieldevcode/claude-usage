@@ -79,10 +79,16 @@
 #define TOUCH_RAW_MAX_Y 358
 
 // ── Polling ──────────────────────────────────────────────
-#define DEFAULT_POLL_SEC        120
-#define MIN_POLL_SEC            30
+// Intervalo entre buscas. Cada ciclo e UM POST /v1/messages com max_tokens:1
+// - a sonda de modelo, que era a segunda requisicao por ciclo, saiu junto com
+// a tela de Modelos.
+//
+// O piso de 10 s nao e arbitrario: a busca e bloqueante (~1 a 2 s de TLS) e a
+// tela fica parada nesse intervalo. A 10 s isso e ~15% do tempo, que ja da
+// para perceber; a 20 s cai para ~8%, que passa despercebido. Dai o padrao.
+#define DEFAULT_POLL_SEC        20
+#define MIN_POLL_SEC            10
 #define MAX_POLL_SEC            300
-#define STATUS_POLL_SEC         300      // status.claude.com a cada 5 min
 
 // ── Segurança (PIN + AES-256-GCM) ────────────────────────
 #define PIN_LEN                 4

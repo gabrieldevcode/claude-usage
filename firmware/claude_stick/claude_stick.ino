@@ -128,6 +128,7 @@ static const uint8_t BRI_LEVELS[3] = {60, 160, 255};
 static int g_briIdx = 1;
 
 static uint32_t g_lastPollMs = 0;         // millis do último poll (p/ barra de refresh)
+static const int POLL_OPTS[4] = {10, 20, 30, 60};
 static int g_pollSec = DEFAULT_POLL_SEC;  // intervalo de atualização (config, NVS)
 static int g_tzOffset = -3;               // fuso GMT (horas), config NVS
 
@@ -289,7 +290,14 @@ static void load_persisted() {
   g_briIdx = g_prefs.getInt("bri", 1);
   if (g_briIdx < 0 || g_briIdx > 2) g_briIdx = 1;
   g_pollSec = g_prefs.getInt("poll", DEFAULT_POLL_SEC);
-  if (g_pollSec < MIN_POLL_SEC || g_pollSec > MAX_POLL_SEC) g_pollSec = DEFAULT_POLL_SEC;
+  {
+    // O valor tem de estar no menu, nao so dentro da faixa: um 120 gravado
+    // pela versao anterior sobreviveria calado, e a placa continuaria lenta
+    // sem nada na tela explicando por que.
+    bool known = false;
+    for (int i = 0; i < 4; i++) if (POLL_OPTS[i] == g_pollSec) known = true;
+    if (!known) { g_pollSec = DEFAULT_POLL_SEC; g_prefs.putInt("poll", g_pollSec); }
+  }
   g_tzOffset = g_prefs.getInt("tz", -3);
   if (g_tzOffset < -12 || g_tzOffset > 14) g_tzOffset = -3;
   g_lang = g_prefs.getInt("lang", 0) ? 1 : 0;
@@ -1466,7 +1474,6 @@ static void ui_main() {
 static bool g_wipeArmed = false;
 static lv_obj_t *g_briLbl = nullptr, *g_wipeLbl = nullptr, *g_pollLbl = nullptr,
                 *g_tzLbl = nullptr;
-static const int POLL_OPTS[4] = {30, 60, 120, 300};
 static const int TZ_OPTS[] = {-3, -4, -5, -6, -7, -8, -2, -1, 0, 1, 2, 3};
 #define NTZ ((int)(sizeof(TZ_OPTS) / sizeof(TZ_OPTS[0])))
 

@@ -31,7 +31,8 @@
 #include "api.h"
 #include "crypto.h"
 #include "accounts.h"
-#include "logo_assets.h"   // Clawd + logotipo oficiais (gerado por tools/gen_logo_assets.py)
+#include "logo_assets.h"
+#include "pixel_anims.h"   // Clawd + logotipo oficiais (gerado por tools/gen_logo_assets.py)
 
 // ---- Paleta ----
 // Contraste medido contra o fundo do card (C_SURFACE), nao contra o fundo da
@@ -137,6 +138,7 @@ struct DashUI {
   lv_obj_t *agChip, *agPct5, *agCd5, *agAt5;
   lv_obj_t *agPct7, *agCd7, *agAt7, *agTok;
   lv_obj_t *bar5, *bar7;
+  lv_obj_t *anim;
 };
 static DashUI g_ui;
 static lv_obj_t *g_pinDots = nullptr, *g_pinMsg = nullptr;
@@ -980,6 +982,66 @@ static void finalize_pending_token() {
 }
 
 // ============================================================
+// Animacao de pixel art (pixel_anims.h)
+// ============================================================
+// Uma lv_canvas de 20x20 em ARGB8888 - 1.600 bytes, estaticos - redesenhada
+// celula a celula e ampliada por lv_image_set_scale. O buffer e estatico de
+// proposito: alocar e liberar 1,6 KB a cada troca de tela fragmentaria a heap,
+// e bloco contiguo e exatamente o recurso que o handshake TLS disputa aqui.
+//
+// A ampliacao usa vizinho mais proximo (antialias desligado): interpolar pixel
+// art de 20x20 para 80x80 borraria justamente as bordas que a definem.
+static uint8_t g_paBuf[LV_CANVAS_BUF_SIZE(PA_W, PA_H, 32, LV_DRAW_BUF_STRIDE_ALIGN)];
+static int      g_paAnim = -1;      // indice em PA_ANIMS
+static int      g_paStep = 0;
+static uint32_t g_paStepAt = 0;
+
+static void pa_paint(int animIdx, int step) {
+  if (!g_ui.anim || animIdx < 0 || animIdx >= PA_COUNT) return;
+  const pa_anim_t &a = PA_ANIMS[animIdx];
+  if (step < 0 || step >= a.stepN) return;
+
+  uint8_t gi = pgm_read_byte(&a.steps[step].grid);
+  const uint8_t *g = a.grids + (uint32_t)gi * PA_GRID_BYTES;
+
+  for (int y = 0; y < PA_H; y++) {
+    for (int x = 0; x < PA_W; x += 2) {
+      uint8_t b = pgm_read_byte(g + (y * PA_W + x) / 2);
+      for (int k = 0; k < 2; k++) {
+        uint8_t idx = k ? (b & 0x0f) : (b >> 4);
+        if (idx == 0 || idx >= a.palN) {                 // 0 = transparente
+          lv_canvas_set_px(g_ui.anim, x + k, y, lv_color_black(), LV_OPA_TRANSP);
+        } else {
+          uint16_t c = pgm_read_word(&a.pal[idx]);
+          lv_canvas_set_px(g_ui.anim, x + k, y, lv_color_hex(
+              ((c & 0xF800) << 8) | ((c & 0x07E0) << 5) | ((c & 0x001F) << 3)), LV_OPA_COVER);
+        }
+      }
+    }
+  }
+}
+
+// Troca a animacao em exibicao. Repetir a mesma nao reinicia o ciclo — senao
+// cada atualizacao de dados travaria o bicho no primeiro quadro.
+static void pa_set(int animIdx) {
+  if (animIdx == g_paAnim || animIdx < 0 || animIdx >= PA_COUNT) return;
+  g_paAnim = animIdx;
+  g_paStep = 0;
+  g_paStepAt = millis();
+  pa_paint(g_paAnim, 0);
+}
+
+static void pa_tick() {
+  if (!g_ui.anim || g_paAnim < 0) return;
+  const pa_anim_t &a = PA_ANIMS[g_paAnim];
+  uint16_t hold = pgm_read_word(&a.steps[g_paStep].hold_ms);
+  if (millis() - g_paStepAt < hold) return;
+  g_paStepAt = millis();
+  g_paStep = (g_paStep + 1) % a.stepN;
+  pa_paint(g_paAnim, g_paStep);
+}
+
+// ============================================================
 // Dashboard — helpers visuais
 // ============================================================
 static uint32_t status_color(const char *s) {
@@ -1068,41 +1130,69 @@ static lv_obj_t *rrect(lv_obj_t *p, int x, int y, int w, int h, int r, uint32_t 
 // ============================================================
 // Tile 0 — AGORA: janelas 5h/semana com % grande, medidor segmentado
 // (verde -> vermelho conforme o uso) e countdown grande.
-static void build_win_card(lv_obj_t *t, int x, const char *title,
+// Card de uma janela. 216x84 com 10 de padding: 196x64 uteis, em tres faixas.
+//
+//   USO AGORA                  73%     <- o que e, e quanto ja foi
+//   [========------------------]       <- o mesmo numero, de relance
+//   faltam 2h14        zera 21:04      <- quando volta ao zero
+//
+// A leitura desce em ordem de utilidade: primeiro o quanto, depois ate quando.
+static void build_win_card(lv_obj_t *t, int y, const char *title,
                            lv_obj_t **pct, lv_obj_t **bar, lv_obj_t **at, lv_obj_t **cd) {
-  // Card de 152 px com 14 de padding: 124 px uteis.
-  lv_obj_t *c = card(t, x, 44, 152, 144);
-  tstatic(c, title, &lv_font_montserrat_12, C_MUTED, 0, 0);
-  *pct = tlabel(c, &lv_font_montserrat_40, C_OK, 0, 14);
+  lv_obj_t *c = lv_obj_create(t);
+  lv_obj_set_pos(c, 4, y); lv_obj_set_size(c, 216, 84);
+  lv_obj_set_style_bg_color(c, lv_color_hex(C_SURFACE), 0);
+  lv_obj_set_style_border_width(c, 0, 0);
+  lv_obj_set_style_radius(c, 14, 0);
+  lv_obj_set_style_pad_all(c, 10, 0);
+  lv_obj_clear_flag(c, LV_OBJ_FLAG_SCROLLABLE);
+
+  tstatic(c, title, &lv_font_montserrat_12, C_MUTED, 0, 4);
+
+  *pct = tlabel(c, &lv_font_montserrat_28, C_OK, 0, 0);
+  lv_obj_set_width(*pct, 196);
+  lv_obj_set_style_text_align(*pct, LV_TEXT_ALIGN_RIGHT, 0);
 
   *bar = lv_bar_create(c);
-  lv_obj_set_size(*bar, 124, 14);
-  lv_obj_set_pos(*bar, 0, 60);
+  lv_obj_set_size(*bar, 196, 12);
+  lv_obj_set_pos(*bar, 0, 32);
   lv_bar_set_range(*bar, 0, 1000);            // decimos de %: 0,1% ja move
   lv_bar_set_value(*bar, 0, LV_ANIM_OFF);
-  lv_obj_set_style_radius(*bar, 7, LV_PART_MAIN);
-  lv_obj_set_style_radius(*bar, 7, LV_PART_INDICATOR);
+  lv_obj_set_style_radius(*bar, 6, LV_PART_MAIN);
+  lv_obj_set_style_radius(*bar, 6, LV_PART_INDICATOR);
   lv_obj_set_style_bg_color(*bar, lv_color_hex(C_TRACK), LV_PART_MAIN);
   lv_obj_set_style_bg_opa(*bar, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_clear_flag(*bar, LV_OBJ_FLAG_CLICKABLE);
 
-  // "faltam 2h14" em cima, grande: e o numero com que se decide se da para
-  // continuar. "zera 21:04" embaixo, pequeno: e a confirmacao.
-  *cd = tlabel(c, &lv_font_montserrat_20, C_TEXT, 0, 82);
-  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 106);
+  *cd = tlabel(c, &lv_font_montserrat_14, C_TEXT, 0, 48);
+  *at = tlabel(c, &lv_font_montserrat_12, C_FAINT, 0, 50);
+  lv_obj_set_width(*at, 196);
+  lv_obj_set_style_text_align(*at, LV_TEXT_ALIGN_RIGHT, 0);
 }
-// Monta o painel direto na tela ativa. Os y sao 44 maiores que os de antes
-// porque o container do tileview, que ficava em y=44, deixou de existir.
+
 static void build_dashboard(lv_obj_t *t) {
   // "5 HORAS" so diz alguma coisa para quem ja sabe o que e a janela de 5h. O
   // que a pessoa quer saber e quanto ela gastou agora e quanto gastou na
   // semana; quando a conta zera esta logo abaixo, com hora.
-  build_win_card(t, 4,   TRS("USO AGORA", "USED NOW"),  &g_ui.agPct5, &g_ui.bar5, &g_ui.agAt5, &g_ui.agCd5);
-  build_win_card(t, 164, TRS("NA SEMANA", "THIS WEEK"), &g_ui.agPct7, &g_ui.bar7, &g_ui.agAt7, &g_ui.agCd7);
-  g_ui.agChip = mkchip(t, 4, 192);
-  g_ui.agTok = tlabel(t, &lv_font_montserrat_12, C_MUTED, 110, 196);
-  lv_obj_set_width(g_ui.agTok, 206);
-  lv_obj_set_style_text_align(g_ui.agTok, LV_TEXT_ALIGN_RIGHT, 0);
+  build_win_card(t, 44,  TRS("USO AGORA", "USED NOW"),  &g_ui.agPct5, &g_ui.bar5, &g_ui.agAt5, &g_ui.agCd5);
+  build_win_card(t, 134, TRS("NA SEMANA", "THIS WEEK"), &g_ui.agPct7, &g_ui.bar7, &g_ui.agAt7, &g_ui.agCd7);
+
+  // Coluna da direita, 88 px: o estado geral em cima e o Clawd embaixo.
+  g_ui.agChip = mkchip(t, 230, 46);
+
+  g_ui.anim = lv_canvas_create(t);
+  lv_canvas_set_buffer(g_ui.anim, g_paBuf, PA_W, PA_H, LV_COLOR_FORMAT_ARGB8888);
+  lv_canvas_fill_bg(g_ui.anim, lv_color_black(), LV_OPA_TRANSP);
+  lv_image_set_antialias(g_ui.anim, false);      // pixel art: vizinho mais proximo
+  lv_image_set_pivot(g_ui.anim, 0, 0);
+  lv_image_set_scale(g_ui.anim, 256 * 4);        // 20x20 -> 80x80
+  lv_obj_set_pos(g_ui.anim, 232, 84);
+
+  // Contagem de tokens da janela: so aparece quando o tools/token_bridge.py
+  // esta rodando na maquina do usuario. Fica no rodape, abaixo dos cards.
+  g_ui.agTok = tlabel(t, &lv_font_montserrat_12, C_FAINT, 4, 222);
+  lv_obj_set_width(g_ui.agTok, 312);
+  lv_obj_set_style_text_align(g_ui.agTok, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 
@@ -1494,6 +1584,7 @@ static void ui_main() {
   lv_obj_add_event_cb(gear, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_SETTINGS);
 
   build_dashboard(scr);
+  pa_set(PA_IDLE_BREATHE);
 
   refresh_ui_values();
   Serial.printf("[MEM] dashboard montado: livre=%u  maior bloco=%u\n",
@@ -2089,6 +2180,7 @@ void loop() {
     uint32_t now = millis();
     static uint32_t lastTick = 0, lastBar = 0;
     if (now - lastTick > 1000) { lastTick = now; dash_tick(); update_tok_row(); }
+    pa_tick();
     if (now - lastBar > 250 && g_ui.refArc) {
       lastBar = now;
       int v;

@@ -1,18 +1,24 @@
-/**
- * Claude Usage Stick — tela touch LVGL
- * Placa: Guition JC4832W535 (ESP32-S3, AXS15231B QSPI), 480x320 paisagem.
+/*
+ * Claude Usage Stick - CYD ESP32-2432S028
  *
- * Dashboard do rate-limit do Claude Code (janelas 5h e 7d, headers unified-*),
- * sonda real por modelo (latencia + HTTP), projecao de esgotamento da janela
- * 5h e ritmo de uso por hora com filtro de periodo. Token OAuth digitado na
- * tela e guardado cifrado (AES-256-GCM, chave derivada de um PIN de 4 digitos).
+ * Mostra quanto das janelas de 5 horas e da semana ja foi consumido no Claude
+ * Code, lendo os cabeçalhos anthropic-ratelimit-unified-* de um POST
+ * /v1/messages com max_tokens:1. Nao ha serviço no meio: a placa fala direto
+ * com a api.anthropic.com.
  *
- * Tokens por sessao: a API nao expoe contagem para conta de assinatura; um
- * bridge opcional (tools/token_bridge.py) soma os transcripts locais do
- * Claude Code e faz POST /tokens neste device (mDNS claude-stick.local).
+ * Uma tela so. O token fica cifrado em AES-256-GCM na NVS, com chave derivada
+ * do proprio chip - o que evita texto claro, nao protege de quem tem a placa
+ * (ver crypto.cpp). Wi-Fi e token sao configurados na tela e num formulario
+ * web local; nada disso entra no binario.
  *
- * Sem botao fisico: navegacao 100% touch (swipe entre telas + slideshow).
- * Init de display/touch validado no bring-up (ver REFERENCIA-HARDWARE-LVGL.md).
+ * Port do benevid/claude-usage-stick-SVGL, originalmente para uma Guition
+ * JC4832W535 (ESP32-S3, 480x320, PSRAM). Aqui: ESP32 classico, 4 MB de flash,
+ * SEM PSRAM, ST7789 320x240 em SPI e XPT2046 resistivo.
+ *
+ * A restricao que manda em tudo neste arquivo e bloco contiguo de heap: a
+ * validacao da cadeia TLS da Anthropic (ECDSA P-384) precisa de ~78 KB
+ * contiguos, e falha com um HTTP -1 que nao menciona memoria em momento
+ * nenhum. Ver docs/HARDWARE-CYD.md antes de alocar qualquer coisa aqui.
  */
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
@@ -1830,10 +1836,10 @@ static void ui_about() {
   lv_obj_t *ver = mklabel(scr, v, &lv_font_montserrat_12, C_FAINT);
   lv_obj_align(ver, LV_ALIGN_TOP_MID, 0, 114);
 
-  lv_obj_t *d = mklabel(scr, TRS("Medidor de uso do Claude Code em tempo real: "
-                                 "janelas de 5h e semanal direto da API da Anthropic.",
-                                 "Real-time Claude Code usage meter: "
-                                 "5-hour and weekly windows straight from the Anthropic API."),
+  lv_obj_t *d = mklabel(scr, TRS("Uso do Claude Code em tempo real: janela de 5h e "
+                                 "semanal, lidas direto dos cabecalhos da API.",
+                                 "Live Claude Code usage: the 5-hour and weekly "
+                                 "windows, read straight from the API headers."),
                         &lv_font_montserrat_12, C_MUTED);
   lv_obj_set_width(d, 300);
   lv_obj_set_style_text_align(d, LV_TEXT_ALIGN_CENTER, 0);

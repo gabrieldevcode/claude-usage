@@ -8,7 +8,7 @@
 // ============================================================
 
 // ── Firmware ─────────────────────────────────────────────
-#define FW_VERSION              "2.3"
+#define FW_VERSION              "3.0-cyd"
 
 // ── Display SPI (ST7789) ─────────────────────────────────
 // Barramento provado por round-trip de MADCTL: escreve 0x36, le de volta em

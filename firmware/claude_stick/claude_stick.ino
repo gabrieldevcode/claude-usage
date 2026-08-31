@@ -82,7 +82,7 @@ Preferences g_prefs;
 
 // ---- Estado da aplicação ----
 enum State {
-  ST_BOOT, ST_UNLOCK, ST_PIN, ST_WIFI, ST_TOKEN,
+  ST_BOOT, ST_UNLOCK, ST_PIN, ST_WIFI, ST_TOKEN, ST_PARTY,
   ST_LOADING, ST_MAIN, ST_SETTINGS, ST_ACCOUNTS, ST_ACCT_NAME, ST_ABOUT, ST_ERROR
 };
 static State g_state = ST_BOOT;
@@ -159,6 +159,7 @@ static void set_hdr_status();
 static void apply_tz();
 static void ui_pin();
 static void ui_unlock();
+static void ui_party();
 static void ui_wifi();
 static void ui_token();
 static void ui_loading(const char *sub);
@@ -447,6 +448,35 @@ static void ui_pin() {
 }
 
 // ============================================================
+// Tela: festa — o Clawd grande, no meio, sem mais nada
+// ============================================================
+// Um toque no Clawd do painel chega aqui. Nao mostra dado nenhum de proposito:
+// e o unico lugar do firmware que existe so para ser bonito.
+static void ui_party() {
+  lv_obj_t *scr = lv_screen_active();
+  lv_obj_set_style_bg_color(scr, lv_color_hex(0x0E0E14), 0);
+
+  // 20x20 a escala 11 = 220 px: o maior quadrado que cabe nos 240 de altura.
+  lv_obj_t *box = pa_mount(scr, 11);
+  lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 2);
+  pa_set(PA_DANCE_DJMIX);
+
+  lv_obj_t *hint = mklabel(scr, TRS("toque para voltar", "tap to go back"),
+                           &lv_font_montserrat_12, C_FAINT);
+  lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -6);
+
+  // A tela inteira volta: nao ha nada aqui para errar o alvo.
+  lv_obj_t *back = lv_obj_create(scr);
+  lv_obj_set_pos(back, 0, 0);
+  lv_obj_set_size(back, SCREEN_WIDTH, TOUCH_SAFE_BOTTOM);
+  lv_obj_set_style_bg_opa(back, 0, 0);
+  lv_obj_set_style_border_width(back, 0, 0);
+  lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(back, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(back, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_MAIN);
+}
+
+// ============================================================
 // Tela: desbloqueio — um toque e entra
 // ============================================================
 // Substitui o teclado de PIN. Nao guarda segredo nenhum: o token ja foi aberto
@@ -461,12 +491,9 @@ static void unlock_cb(lv_event_t *e) {
 static void ui_unlock() {
   lv_obj_t *scr = lv_screen_active();
 
-  lv_obj_t *icon = lv_image_create(scr);
-  lv_image_set_src(icon, &img_clawd_xl);
-  lv_image_set_pivot(icon, 0, 0);
-  lv_image_set_scale(icon, 200);
-  lv_obj_update_layout(icon);
-  lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 22);
+  lv_obj_t *box = pa_mount(scr, 5);                // 100x100
+  lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 14);
+  pa_set(PA_IDLE_LOOK_AROUND);                     // esperando alguem chegar
 
   lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_18, C_TEXT);
   lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 118);
@@ -539,6 +566,10 @@ static void ui_wifi() {
   lv_obj_t *title = mklabel(scr, TRS("Configurar WiFi", "Configure WiFi"), &lv_font_montserrat_16, C_TEXT);
   lv_obj_align(title, LV_ALIGN_TOP_LEFT, 10, 8);
 
+  lv_obj_t *mark = pa_mount(scr, 2);               // 40x40, cabe no cabecalho
+  lv_obj_align(mark, LV_ALIGN_TOP_LEFT, 160, 0);
+  pa_set(PA_IDLE_BLINK);
+
   lv_obj_t *rb = mkbtn(scr, TRS("Reescanear", "Rescan"), &lv_font_montserrat_12, C_SURFACE2, C_ACCENT);
   lv_obj_set_size(rb, 88, 30);
   lv_obj_align(rb, LV_ALIGN_TOP_RIGHT, -6, 4);
@@ -600,22 +631,7 @@ static void ensure_mdns() {
   }
 }
 
-static void anim_opa_cb(void *o, int32_t v) { lv_obj_set_style_opa((lv_obj_t *)o, (lv_opa_t)v, 0); }
 
-// Clawd oficial (pixel-art) com "respiração" — substitui o antigo sol de raios.
-static lv_obj_t *build_claude_mark(lv_obj_t *parent) {
-  lv_obj_t *img = lv_image_create(parent);
-  lv_image_set_src(img, &img_clawd_big);
-  lv_anim_t a; lv_anim_init(&a);
-  lv_anim_set_var(&a, img);
-  lv_anim_set_exec_cb(&a, anim_opa_cb);
-  lv_anim_set_values(&a, 140, 255);
-  lv_anim_set_duration(&a, 900);
-  lv_anim_set_playback_duration(&a, 900);
-  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_start(&a);
-  return img;
-}
 
 // ---- páginas HTML ----
 #define WEB_CSS \
@@ -783,8 +799,9 @@ static void ui_token() {
     lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)(g_usage.ok ? ST_MAIN : ST_SETTINGS));
   }
 
-  lv_obj_t *mark = build_claude_mark(scr);
-  lv_obj_align(mark, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_t *mark = pa_mount(scr, 3);               // 60x60
+  lv_obj_align(mark, LV_ALIGN_TOP_MID, 0, 2);
+  pa_set(PA_WORK_THINK);
 
   lv_obj_t *cap = mklabel(scr, TRS("Cole o token pelo navegador, em:",
                                    "Paste the token via browser, at:"), &lv_font_montserrat_12, C_MUTED);
@@ -828,6 +845,9 @@ static void ui_token() {
 // ============================================================
 static void ui_message(const char *title, const char *sub, uint32_t color) {
   lv_obj_t *scr = lv_screen_active();
+  lv_obj_t *mark = pa_mount(scr, 4);               // 80x80
+  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -66);
+  pa_set(PA_EXPRESSION_SLEEP);
   lv_obj_t *t = mklabel(scr, title, &lv_font_montserrat_20, color);
   lv_obj_align(t, LV_ALIGN_CENTER, 0, -14);
   if (sub && sub[0]) {
@@ -840,8 +860,9 @@ static void ui_message(const char *title, const char *sub, uint32_t color) {
 }
 static void ui_loading(const char *sub) {
   lv_obj_t *scr = lv_screen_active();
-  lv_obj_t *mark = build_claude_mark(scr);
-  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -46);
+  lv_obj_t *mark = pa_mount(scr, 4);               // 80x80
+  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -52);
+  pa_set(PA_WORK_CODING);
   lv_obj_t *t = mklabel(scr, TRS("Carregando seu uso...", "Loading your usage..."), &lv_font_montserrat_16, C_TEXT);
   lv_obj_align(t, LV_ALIGN_CENTER, 0, 22);
   if (sub && sub[0]) {
@@ -874,8 +895,9 @@ static void boot_splash(const char *sub) {
   lv_obj_set_style_bg_color(scr, lv_color_hex(C_BG), 0);
   lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
-  lv_obj_t *mark = build_claude_mark(scr);
-  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -46);
+  lv_obj_t *mark = pa_mount(scr, 4);               // 80x80
+  lv_obj_align(mark, LV_ALIGN_CENTER, 0, -52);
+  pa_set(PA_IDLE_BREATHE);
   lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_16, C_TEXT);
   lv_obj_align(t, LV_ALIGN_CENTER, 0, 22);
   g_bootSub = mklabel(scr, sub ? sub : "", &lv_font_montserrat_12, C_MUTED);
@@ -894,9 +916,14 @@ static void boot_splash(const char *sub) {
   lv_refr_now(NULL);                       // o loop() ainda nao roda: forca o desenho
 }
 
+// O boot desenha antes de o loop() existir, entao quem faz a animacao andar
+// durante ele sao boot_status() e boot_wifi_tick(), que ja sao chamados em
+// intervalos curtos enquanto o WiFi sobe.
+
 static void boot_status(const char *sub) {
   if (!g_bootSub) return;
   lv_label_set_text(g_bootSub, sub);
+  pa_tick();
   lv_task_handler();
   lv_refr_now(NULL);
 }
@@ -913,6 +940,7 @@ static void boot_wifi_tick(const char *ssid, int idx, int total) {
     snprintf(ultimo, sizeof(ultimo), "%s", s);
     lv_label_set_text(g_bootSub, s);
   }
+  pa_tick();
   lv_task_handler();
 }
 
@@ -1030,6 +1058,36 @@ static void pa_paint(int animIdx, int step) {
       }
     }
   }
+}
+
+// Cria o canvas da animacao numa tela. Uma por tela: o buffer e unico, e so
+// existe uma tela viva por vez (render_state limpa a anterior).
+//
+// O objeto do canvas continua com 20x20 mesmo ampliado - a escala e de
+// desenho, nao de layout. Entao o alvo de toque, quando existe, e um objeto
+// transparente por cima, do tamanho JA ampliado.
+static lv_obj_t *pa_mount(lv_obj_t *parent, int scale) {
+  // O container existe porque o canvas mede 20x20 em layout por mais que
+  // desenhe 20*scale: sem ele, lv_obj_align centraria um quadrado de 20 px e o
+  // desenho vazaria para baixo e para a direita. O container tem o tamanho
+  // real, entao alinhar e receber toque funcionam como em qualquer widget.
+  lv_obj_t *box = lv_obj_create(parent);
+  lv_obj_set_size(box, PA_W * scale, PA_H * scale);
+  lv_obj_set_style_bg_opa(box, 0, 0);
+  lv_obj_set_style_border_width(box, 0, 0);
+  lv_obj_set_style_pad_all(box, 0, 0);
+  lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t *c = lv_canvas_create(box);
+  lv_canvas_set_buffer(c, g_paBuf, PA_W, PA_H, LV_COLOR_FORMAT_ARGB8888);
+  lv_canvas_fill_bg(c, lv_color_black(), LV_OPA_TRANSP);
+  lv_image_set_antialias(c, false);            // pixel art: vizinho mais proximo
+  lv_image_set_pivot(c, 0, 0);
+  lv_image_set_scale(c, 256 * scale);
+  lv_obj_set_pos(c, 0, 0);
+  g_ui.anim = c;
+  g_paAnim = -1;                               // canvas novo: forca o primeiro paint
+  return box;
 }
 
 // Troca a animacao em exibicao. Repetir a mesma nao reinicia o ciclo — senao
@@ -1191,13 +1249,12 @@ static void build_dashboard(lv_obj_t *t) {
   // Coluna da direita, 88 px: o estado geral em cima e o Clawd embaixo.
   g_ui.agChip = mkchip(t, 230, 46);
 
-  g_ui.anim = lv_canvas_create(t);
-  lv_canvas_set_buffer(g_ui.anim, g_paBuf, PA_W, PA_H, LV_COLOR_FORMAT_ARGB8888);
-  lv_canvas_fill_bg(g_ui.anim, lv_color_black(), LV_OPA_TRANSP);
-  lv_image_set_antialias(g_ui.anim, false);      // pixel art: vizinho mais proximo
-  lv_image_set_pivot(g_ui.anim, 0, 0);
-  lv_image_set_scale(g_ui.anim, 256 * 4);        // 20x20 -> 80x80
-  lv_obj_set_pos(g_ui.anim, 232, 84);
+  // Um toque no Clawd leva a tela de festa.
+  lv_obj_t *box = pa_mount(t, 4);                // 20x20 -> 80x80
+  lv_obj_set_pos(box, 232, 84);
+  lv_obj_set_ext_click_area(box, 6);
+  lv_obj_add_flag(box, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(box, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_PARTY);
 
   // Contagem de tokens da janela: so aparece quando o tools/token_bridge.py
   // esta rodando na maquina do usuario. Fica no rodape, abaixo dos cards.
@@ -1323,7 +1380,7 @@ static void mood_update() {
   if      (p >= 90.0f) pa_set(PA_EXPRESSION_SURPRISE);
   else if (p >= 70.0f) pa_set(PA_WORK_THINK);
   else if (p >= 50.0f) pa_set(PA_IDLE_LOOK_AROUND);
-  else                 pa_set(PA_IDLE_BREATHE);
+  else                 pa_set(PA_DANCE_BOUNCE);      // tudo tranquilo: dança
 }
 
 // Preenche todos os valores vindos do fetch (sem rebuild de tela).
@@ -1345,7 +1402,7 @@ static void refresh_ui_values() {
   // A janela zerou: a utilizacao despencou entre duas leituras. E o unico
   // momento francamente bom do dia nesta tela, entao o bicho dança.
   if (g_moodPrevH5 >= 0 && (g_moodPrevH5 - g_usage.h5) > 15.0f)
-    mood_pin(PA_DANCE_BOUNCE, MOOD_HOLD_MS);
+    mood_pin(PA_DANCE_BOUNCE_DJ, MOOD_HOLD_MS);   // a janela zerou: festa curta
   else if (g_pendWin >= 0) {
     // Limiar cruzado: surpresa nos altos, piscadela nos baixos.
     mood_pin(g_pendThr >= 70 ? PA_EXPRESSION_SURPRISE : PA_EXPRESSION_WINK, MOOD_HOLD_MS);
@@ -1825,8 +1882,9 @@ static void ui_about() {
   lv_obj_align(bk, LV_ALIGN_TOP_RIGHT, -6, 4);
   lv_obj_add_event_cb(bk, nav_cb, LV_EVENT_CLICKED, (void *)(intptr_t)ST_SETTINGS);
 
-  lv_obj_t *mark = build_claude_mark(scr);
-  lv_obj_align(mark, LV_ALIGN_TOP_MID, 0, 0);
+  lv_obj_t *mark = pa_mount(scr, 4);               // 80x80
+  lv_obj_align(mark, LV_ALIGN_TOP_MID, 0, 2);
+  pa_set(PA_EXPRESSION_WINK);
 
   lv_obj_t *t = mklabel(scr, "Claude Usage Stick", &lv_font_montserrat_18, C_TEXT);
   lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 92);
@@ -1891,6 +1949,7 @@ static void render_state() {
 
   switch (g_state) {
     case ST_UNLOCK:    ui_unlock(); break;
+    case ST_PARTY:     ui_party(); break;
     case ST_PIN:       ui_pin(); break;
     case ST_WIFI:      ui_wifi(); break;
     case ST_TOKEN:     ui_token(); break;
@@ -2057,11 +2116,12 @@ void loop() {
   }
 
   // Atualização viva: contadores de reset (1s) e anel do próximo refresh (250ms)
+  pa_tick();                    // a animacao roda em qualquer tela que a tenha
+
   if (g_state == ST_MAIN) {
     uint32_t now = millis();
     static uint32_t lastTick = 0, lastBar = 0;
     if (now - lastTick > 1000) { lastTick = now; dash_tick(); update_tok_row(); }
-    pa_tick();
     if (now - lastBar > 250 && g_ui.refArc) {
       lastBar = now;
       int v;

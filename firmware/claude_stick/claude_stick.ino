@@ -241,6 +241,16 @@ static lv_color_t grad_color(float p) {
 // laranja - em nenhum dos dois casos da para ler quanto e. E cada segmento era
 // um objeto LVGL com estilo proprio; 18 por card, 36 no total, so para
 // desenhar uma barra.
+// Porcentagem para exibicao. A utilizacao vem da API como fracao e pode passar
+// de 1.0 quando o limite estourou; "101%" nao quer dizer nada para quem le, e
+// ainda contradizia a barra, que sempre limitou em 100. O valor cru continua
+// indo inteiro para o log do serial.
+static int pct_show(float p) {
+  if (p < 0) p = 0;
+  if (p > 100.0f) p = 100.0f;
+  return (int)(p + 0.5f);
+}
+
 static void set_meter(lv_obj_t *bar, float pct) {
   if (!bar) return;
   if (pct < 0) pct = 0; if (pct > 100) pct = 100;
@@ -1389,10 +1399,10 @@ static void refresh_ui_values() {
   char b[96];
 
   // Agora: percentuais + medidores segmentados (cor desliza verde -> vermelho)
-  snprintf(b, sizeof(b), "%d%%", (int)(g_usage.h5 + 0.5f)); lv_label_set_text(g_ui.agPct5, b);
+  snprintf(b, sizeof(b), "%d%%", pct_show(g_usage.h5)); lv_label_set_text(g_ui.agPct5, b);
   lv_obj_set_style_text_color(g_ui.agPct5, grad_color(g_usage.h5), 0);
   set_meter(g_ui.bar5, g_usage.h5);
-  snprintf(b, sizeof(b), "%d%%", (int)(g_usage.d7 + 0.5f)); lv_label_set_text(g_ui.agPct7, b);
+  snprintf(b, sizeof(b), "%d%%", pct_show(g_usage.d7)); lv_label_set_text(g_ui.agPct7, b);
   lv_obj_set_style_text_color(g_ui.agPct7, grad_color(g_usage.d7), 0);
   set_meter(g_ui.bar7, g_usage.d7);
 

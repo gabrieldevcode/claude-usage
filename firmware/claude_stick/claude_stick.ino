@@ -1547,10 +1547,27 @@ static void ui_main() {
 static bool g_wipeArmed = false;
 static lv_obj_t *g_briLbl = nullptr, *g_wipeLbl = nullptr, *g_pollLbl = nullptr,
                 *g_tzLbl = nullptr;
-static const int TZ_OPTS[] = {-3, -4, -5, -6, -7, -8, -2, -1, 0, 1, 2, 3};
+// Ordem escolhida para o custo de voltar ser baixo, nao por geografia: o
+// padrao (-3) vem primeiro e o vizinho mais provavel de um engano (-4) vem por
+// ultimo, entao de -4 para -3 e UM toque. Na ordem crescente anterior eram 11.
+static const int TZ_OPTS[] = {-3, -2, -1, 0, 1, 2, 3, -8, -7, -6, -5, -4};
 #define NTZ ((int)(sizeof(TZ_OPTS) / sizeof(TZ_OPTS[0])))
 
 static int g_acctDelArmed = -1;
+
+// Texto da linha de fuso. Mostrar a hora local ao lado do offset e o que torna
+// um fuso errado visivel: sem isso, escolher GMT-4 no lugar de GMT-3 desloca
+// todos os relogios da tela em uma hora sem nenhum sinal de que algo mudou.
+static void tz_row_text(char *out, size_t n) {
+  char hm[8] = "--:--";
+  time_t agora = time(nullptr);
+  if (agora > 1000000000L) {
+    struct tm lt; localtime_r(&agora, &lt);
+    strftime(hm, sizeof(hm), "%H:%M", &lt);
+  }
+  snprintf(out, n, TRS(LV_SYMBOL_GPS "  Fuso: GMT%+d  (agora %s)",
+                       LV_SYMBOL_GPS "  Timezone: GMT%+d  (now %s)"), g_tzOffset, hm);
+}
 
 static void settings_action_cb(lv_event_t *e) {
   int act = (int)(intptr_t)lv_event_get_user_data(e);
@@ -1604,12 +1621,7 @@ static void settings_action_cb(lv_event_t *e) {
       g_tzOffset = TZ_OPTS[(idx + 1) % NTZ];
       g_prefs.putInt("tz", g_tzOffset);
       apply_tz();
-      if (g_tzLbl) {
-        char m[40];
-        snprintf(m, sizeof(m), TRS(LV_SYMBOL_GPS "  Fuso: GMT%+d",
-                                   LV_SYMBOL_GPS "  Timezone: GMT%+d"), g_tzOffset);
-        lv_label_set_text(g_tzLbl, m);
-      }
+      if (g_tzLbl) { char m[48]; tz_row_text(m, sizeof(m)); lv_label_set_text(g_tzLbl, m); }
       break;
     }
     case 9:                                            // idioma / language
@@ -1666,8 +1678,7 @@ static void ui_settings() {
                                                              LV_SYMBOL_LOOP "  Refresh: %ds"), g_pollSec);
   else                snprintf(pollTxt, sizeof(pollTxt), TRS(LV_SYMBOL_LOOP "  Atualizar: %dmin",
                                                              LV_SYMBOL_LOOP "  Refresh: %dmin"), g_pollSec / 60);
-  char tzTxt[40]; snprintf(tzTxt, sizeof(tzTxt), TRS(LV_SYMBOL_GPS "  Fuso: GMT%+d",
-                                                     LV_SYMBOL_GPS "  Timezone: GMT%+d"), g_tzOffset);
+  char tzTxt[48]; tz_row_text(tzTxt, sizeof(tzTxt));
 
   add_setting_row(lst, TRS(LV_SYMBOL_REFRESH "  Atualizar agora",
                            LV_SYMBOL_REFRESH "  Refresh now"),   0, C_TEXT, nullptr);
@@ -1979,7 +1990,11 @@ static void render_state() {
 // ============================================================
 // Tempo (NTP) e ciclo de dados
 // ============================================================
-static void apply_tz() { configTime(g_tzOffset * 3600, 0, NTP_SERVER_1, NTP_SERVER_2); }
+static void apply_tz() {
+  configTime(g_tzOffset * 3600, 0, NTP_SERVER_1, NTP_SERVER_2);
+  const char *tz = getenv("TZ");
+  Serial.printf("[TZ] offset=%+d  TZ=\"%s\"\n", g_tzOffset, tz ? tz : "(vazio)");
+}
 static void ensure_time() {
   if (g_timeInit || !g_wifi.isConnected()) return;
   apply_tz();
